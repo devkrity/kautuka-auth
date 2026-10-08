@@ -1,0 +1,13 @@
+{
+  "name": "kautuka-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/authorize.test.mjs test/google-mail/token.test.mjs test/microsoft-mail/token.test.mjs",
+    "build": "wrangler pages functions build --outdir=./dist/worker/",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.42.0"
+  }
+}

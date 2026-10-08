@@ -1,0 +1,16 @@
+{
+  "name": "kautuka-auth",
+  "compatibility_date": "2026-10-09",
+  "main": "./dist/worker/index.js",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "kv_namespaces": [
+    {
+      // Replace this id with the KV namespace that stores registered Google sign-in keys.
+      "binding": "GOOGLE_MAIL_KEYS",
+      "id": "00000000000000000000000000000000"
+    }
+  ]
+}
