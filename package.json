@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/authorize.test.mjs test/google-mail/token.test.mjs test/microsoft-mail/token.test.mjs",
+    "test": "node --test test/authorize.test.mjs test/return-path.test.mjs test/login/exchange.test.mjs test/google-mail/token.test.mjs test/microsoft-mail/token.test.mjs",
     "build": "wrangler pages functions build --outdir=./dist/worker/",
     "deploy": "npm run build && wrangler deploy"
   },

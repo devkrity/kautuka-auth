@@ -36,6 +36,32 @@ test("the auth host inserts the Microsoft client id", async () => {
   assert.equal(location.searchParams.get("redirect_uri"), "https://auth.example.test/callback");
 });
 
+test("login providers request an identity token and a nonce", async () => {
+  const nonce = "c".repeat(43);
+  const response = await onRequestGet({
+    env: { GOOGLE_LOGIN_CLIENT_ID: "login-client.apps.googleusercontent.com" },
+    request: new Request(
+      `https://auth.example.test/authorize?connector=kautuka-login-google&state=${state}&challenge=${challenge}&nonce=${nonce}`,
+    ),
+  });
+  assert.equal(response.status, 302);
+  const location = new URL(response.headers.get("location"));
+  assert.equal(location.searchParams.get("scope"), "openid email profile");
+  assert.equal(location.searchParams.get("nonce"), nonce);
+  assert.equal(location.searchParams.get("access_type"), null);
+  assert.equal(location.searchParams.get("client_id"), "login-client.apps.googleusercontent.com");
+});
+
+test("a login provider without a nonce is rejected", async () => {
+  const response = await onRequestGet({
+    env: { MICROSOFT_LOGIN_CLIENT_ID: "22222222-2222-2222-2222-222222222222" },
+    request: new Request(
+      `https://auth.example.test/authorize?connector=kautuka-login-microsoft&state=${state}&challenge=${challenge}`,
+    ),
+  });
+  assert.equal(response.status, 400);
+});
+
 test("an unknown connector is rejected", async () => {
   const response = await onRequestGet({
     env: { GOOGLE_CLIENT_ID: "client" },
