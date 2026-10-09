@@ -7,7 +7,7 @@ Sign-in host for an official Kautuka appliance. It inserts the Google or Microso
 ## Before the first deploy
 
 1. Create a KV namespace and put its id in `wrangler.jsonc` under `GOOGLE_MAIL_KEYS`.
-2. Set these Worker secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID`. `REVOKE_TOKEN` is optional.
+2. Set these Worker secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID`, and `MICROSOFT_CLIENT_SECRET`.
 3. Attach `auth.kautuka.io` to this Worker. If a Worker already serves that domain, set `name` in `wrangler.jsonc` to that Worker before deploying.
 
 ## Deploy

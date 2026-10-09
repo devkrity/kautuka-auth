@@ -38,6 +38,11 @@ export async function onRequestPost(context) {
     return text("rejected", 400);
   }
 
+  const fresh = await requireFreshProof(keys, proof);
+  if (fresh) {
+    return fresh;
+  }
+
   if (grant === "authorization_code") {
     await keys.put(proof.jkt, "1");
   } else {
@@ -84,7 +89,6 @@ export async function revokeRegisteredKey(env, request, jkt) {
     request.headers.get("DPoP"),
     request.headers.get("authorization"),
     jkt,
-    env.REVOKE_TOKEN,
     request.url,
   );
   if (!decision.ok) {
@@ -93,6 +97,44 @@ export async function revokeRegisteredKey(env, request, jkt) {
 
   await keys.delete(jkt);
   return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+}
+
+async function requireFreshProof(keys, proof) {
+  const nonce = proof.nonce;
+  if (typeof nonce !== "string" || nonce.length < 16 || !(await keys.get(`nonce:${nonce}`))) {
+    const issued = randomNonce();
+    await keys.put(`nonce:${issued}`, "1", { expirationTtl: 300 });
+    return nonceRequired(issued);
+  }
+
+  if (await keys.get(`jti:${proof.jti}`)) {
+    return text("rejected", 400);
+  }
+
+  await keys.put(`jti:${proof.jti}`, "1", { expirationTtl: 300 });
+  return null;
+}
+
+function randomNonce() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function nonceRequired(nonce) {
+  return new Response(JSON.stringify({ error: "use_dpop_nonce" }), {
+    status: 400,
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      "dpop-nonce": nonce,
+    },
+  });
 }
 
 function callbackFor(request) {

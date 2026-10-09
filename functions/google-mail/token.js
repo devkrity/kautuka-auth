@@ -86,7 +86,7 @@ function callbackFor(request) {
   return `${url.origin}/callback`;
 }
 
-export async function authorizeKeyRevocation(dpop, authorization, jkt, revokeToken, requestUrl) {
+export async function authorizeKeyRevocation(dpop, authorization, jkt, requestUrl) {
   if (typeof jkt !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(jkt)) {
     return { ok: false };
   }
@@ -107,10 +107,6 @@ export async function authorizeKeyRevocation(dpop, authorization, jkt, revokeTok
     return { ok: false };
   }
 
-  if (typeof revokeToken === "string" && revokeToken.length > 0 && authorization === `Bearer ${revokeToken}`) {
-    return { ok: true };
-  }
-
   const proof = await verifyDpop(dpop ?? "", "revoke", null, {
     htm: "DELETE",
     htu: `${keyUrl.origin}${keyUrl.pathname}`,
@@ -128,7 +124,6 @@ export async function revokeRegisteredKey(env, request, jkt) {
     request.headers.get("DPoP"),
     request.headers.get("authorization"),
     jkt,
-    env.REVOKE_TOKEN,
     request.url,
   );
   if (!decision.ok) {
@@ -207,7 +202,7 @@ export async function verifyDpop(dpop, grant, code, target = { htm: "POST", htu:
       return { ok: false };
     }
 
-    return { ok: true, jkt: await thumbprint(jwk) };
+    return { ok: true, jkt: await thumbprint(jwk), jti: payload.jti, nonce: typeof payload.nonce === "string" ? payload.nonce : "" };
   } catch {
     return { ok: false };
   }

@@ -22,23 +22,38 @@ test("the auth host adds the Microsoft client id and keeps the code verifier", a
   const previous = globalThis.fetch;
   let forwarded = "";
   let forwardedHeaders = null;
+  let calls = 0;
   globalThis.fetch = async (_url, init) => {
+    calls += 1;
     forwarded = init.body.toString();
     forwardedHeaders = init.headers;
     return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
   };
   try {
     const key = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
-    const proof = await signProof(key, "auth-code", {
-      htu: "https://auth.example.test/microsoft-mail/token",
-    });
     const stored = new Map();
+    const env = { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys(stored) };
+    const body = "grant_type=authorization_code&code=auth-code&code_verifier=verifier-secret&redirect_uri=https://auth.example.test/callback";
+    const challenged = await onRequestPost({
+      env,
+      request: new Request("https://auth.example.test/microsoft-mail/token", {
+        method: "POST",
+        headers: { DPoP: await signProof(key, "auth-code", { htu: "https://auth.example.test/microsoft-mail/token" }) },
+        body,
+      }),
+    });
+    assert.equal(challenged.status, 400);
+    const challenge = await challenged.json();
+    assert.equal(challenge.error, "use_dpop_nonce");
+    const nonce = challenged.headers.get("dpop-nonce");
+    assert.equal(typeof nonce, "string");
+    const proof = await signProof(key, "auth-code", { htu: "https://auth.example.test/microsoft-mail/token", nonce });
     const response = await onRequestPost({
-      env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys(stored) },
+      env,
       request: new Request("https://auth.example.test/microsoft-mail/token", {
         method: "POST",
         headers: { DPoP: proof },
-        body: "grant_type=authorization_code&code=auth-code&code_verifier=verifier-secret&redirect_uri=https://auth.example.test/callback",
+        body,
       }),
     });
     assert.equal(response.status, 200);
@@ -47,7 +62,16 @@ test("the auth host adds the Microsoft client id and keeps the code verifier", a
     assert.match(forwarded, /client_secret=host-only-secret/);
     assert.doesNotMatch(forwarded, /client_secret=caller/);
     assert.equal(forwardedHeaders.dpop, undefined);
-    assert.equal(stored.size, 1);
+    const replay = await onRequestPost({
+      env,
+      request: new Request("https://auth.example.test/microsoft-mail/token", {
+        method: "POST",
+        headers: { DPoP: proof },
+        body,
+      }),
+    });
+    assert.equal(replay.status, 400);
+    assert.equal(calls, 1);
   } finally {
     globalThis.fetch = previous;
   }
@@ -55,12 +79,14 @@ test("the auth host adds the Microsoft client id and keeps the code verifier", a
 
 test("a refresh without a registered key is rejected", async () => {
   const key = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+  const nonce = "0123456789abcdef";
   const proof = await signProof(key, null, {
     htu: "https://auth.example.test/microsoft-mail/token",
     jti: "0123456789abcdef",
+    nonce,
   });
   const response = await onRequestPost({
-    env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys() },
+    env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys(new Map([[`nonce:${nonce}`, "1"]])) },
     request: new Request("https://auth.example.test/microsoft-mail/token", {
       method: "POST",
       headers: { DPoP: proof },
@@ -68,6 +94,21 @@ test("a refresh without a registered key is rejected", async () => {
     }),
   });
   assert.equal(response.status, 403);
+});
+
+test("a bearer token cannot delete a registered key", async () => {
+  const jkt = "A".repeat(43);
+  const stored = new Map([[jkt, "1"]]);
+  const response = await revokeRegisteredKey(
+    { MICROSOFT_MAIL_KEYS: memoryKeys(stored), REVOKE_TOKEN: "spare-token" },
+    new Request(`https://auth.kautuka.io/microsoft-mail/keys/${jkt}`, {
+      method: "DELETE",
+      headers: { authorization: "Bearer spare-token" },
+    }),
+    jkt,
+  );
+  assert.equal(response.status, 401);
+  assert.equal(stored.has(jkt), true);
 });
 
 test("disconnect removes the registered Microsoft key", async () => {
@@ -109,6 +150,7 @@ async function signProof(key, code, target = {}) {
     htu: target.htu ?? "https://auth.example.test/microsoft-mail/token",
     iat: Math.floor(Date.now() / 1000),
     jti: target.jti ?? base64UrlBytes(new Uint8Array(digest)),
+    ...(target.nonce ? { nonce: target.nonce } : {}),
   }));
   const signature = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
