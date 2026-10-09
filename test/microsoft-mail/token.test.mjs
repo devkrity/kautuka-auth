@@ -4,10 +4,11 @@ import test from "node:test";
 import { onRequestPost, revokeRegisteredKey } from "../../functions/microsoft-mail/token.js";
 
 const clientId = "11111111-1111-1111-1111-111111111111";
+const clientSecret = "host-only-secret";
 
 test("a token request that already carries a client id is rejected", async () => {
   const response = await onRequestPost({
-    env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_MAIL_KEYS: memoryKeys() },
+    env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys() },
     request: new Request("https://auth.example.test/microsoft-mail/token", {
       method: "POST",
       headers: { DPoP: "a.b.c" },
@@ -33,7 +34,7 @@ test("the auth host adds the Microsoft client id and keeps the code verifier", a
     });
     const stored = new Map();
     const response = await onRequestPost({
-      env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_MAIL_KEYS: memoryKeys(stored) },
+      env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys(stored) },
       request: new Request("https://auth.example.test/microsoft-mail/token", {
         method: "POST",
         headers: { DPoP: proof },
@@ -43,7 +44,8 @@ test("the auth host adds the Microsoft client id and keeps the code verifier", a
     assert.equal(response.status, 200);
     assert.match(forwarded, /client_id=11111111-1111-1111-1111-111111111111/);
     assert.match(forwarded, /code_verifier=verifier-secret/);
-    assert.doesNotMatch(forwarded, /client_secret/);
+    assert.match(forwarded, /client_secret=host-only-secret/);
+    assert.doesNotMatch(forwarded, /client_secret=caller/);
     assert.equal(forwardedHeaders.dpop, undefined);
     assert.equal(stored.size, 1);
   } finally {
@@ -58,7 +60,7 @@ test("a refresh without a registered key is rejected", async () => {
     jti: "0123456789abcdef",
   });
   const response = await onRequestPost({
-    env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_MAIL_KEYS: memoryKeys() },
+    env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys() },
     request: new Request("https://auth.example.test/microsoft-mail/token", {
       method: "POST",
       headers: { DPoP: proof },

@@ -5,8 +5,9 @@ const scope = "offline_access Mail.ReadWrite Mail.Send User.Read";
 
 export async function onRequestPost(context) {
   const clientId = context.env.MICROSOFT_CLIENT_ID;
+  const clientSecret = context.env.MICROSOFT_CLIENT_SECRET;
   const keys = context.env.MICROSOFT_MAIL_KEYS;
-  if (!clientId || !keys || typeof keys.get !== "function" || typeof keys.put !== "function") {
+  if (!clientId || !clientSecret || !keys || typeof keys.get !== "function" || typeof keys.put !== "function") {
     return text("Microsoft mail sign-in is not configured.", 503);
   }
 
@@ -48,6 +49,7 @@ export async function onRequestPost(context) {
 
   const outbound = new URLSearchParams();
   outbound.set("client_id", clientId);
+  outbound.set("client_secret", clientSecret);
   outbound.set("grant_type", grant);
   outbound.set("scope", scope);
   if (grant === "authorization_code") {
