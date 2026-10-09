@@ -8,9 +8,9 @@
   },
   "kv_namespaces": [
     {
-      // Replace this id with the KV namespace that stores registered Google sign-in keys.
+      // Registered Google sign-in key thumbprints. The binding name is what the token function reads.
       "binding": "GOOGLE_MAIL_KEYS",
-      "id": "00000000000000000000000000000000"
+      "id": "e3081a8eef574c1b8dfe64e80ace9353"
     }
   ]
 }
