@@ -98,8 +98,10 @@ export async function authorizeKeyRevocation(dpop, authorization, jkt, revokeTok
     return { ok: false };
   }
 
+  const keyPath = keyUrl.pathname.match(/^\/(google-mail|microsoft-mail)\/keys\/([A-Za-z0-9_-]{43})$/);
   if (keyUrl.protocol !== "https:"
-    || keyUrl.pathname !== `/google-mail/keys/${jkt}`
+    || !keyPath
+    || keyPath[2] !== jkt
     || keyUrl.search
     || keyUrl.hash) {
     return { ok: false };
@@ -111,7 +113,7 @@ export async function authorizeKeyRevocation(dpop, authorization, jkt, revokeTok
 
   const proof = await verifyDpop(dpop ?? "", "revoke", null, {
     htm: "DELETE",
-    htu: `${keyUrl.origin}/google-mail/keys/${jkt}`,
+    htu: `${keyUrl.origin}${keyUrl.pathname}`,
   });
   return { ok: proof.ok === true && proof.jkt === jkt };
 }

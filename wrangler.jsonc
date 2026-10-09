@@ -11,6 +11,11 @@
       // Registered Google sign-in key thumbprints. The binding name is what the token function reads.
       "binding": "GOOGLE_MAIL_KEYS",
       "id": "e3081a8eef574c1b8dfe64e80ace9353"
+    },
+    {
+      // Registered Microsoft sign-in key thumbprints.
+      "binding": "MICROSOFT_MAIL_KEYS",
+      "id": "e140285625a6476fabec7f456532e7a5"
     }
   ]
 }
