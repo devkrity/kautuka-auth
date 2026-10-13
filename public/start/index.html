@@ -21,8 +21,11 @@
     const state = params.get('state');
     const challenge = params.get('challenge');
     const nonce = params.get('nonce');
+    const microsoftAccountType = params.get('microsoftAccountType');
+    const validAccountType = microsoftAccountType === null ||
+      (connector === 'kautuka-login-microsoft' && ['organizations', 'consumers'].includes(microsoftAccountType));
     const login = returnPathFor(connector) === '/login/callback';
-    if (!isAllowedReturn(returnUrl, connector) || !isConnector(connector) || !isPkce(state) || !isPkce(challenge) || (login && !isPkce(nonce))) {
+    if (!validAccountType || !isAllowedReturn(returnUrl, connector) || !isConnector(connector) || !isPkce(state) || !isPkce(challenge) || (login && !isPkce(nonce))) {
       status.textContent = 'This sign-in link is not valid. Start again from Kautuka.';
     } else {
       sessionStorage.setItem('kautukaAuthReturn', returnUrl);
@@ -32,6 +35,7 @@
       next.searchParams.set('state', state);
       next.searchParams.set('challenge', challenge);
       if (login) next.searchParams.set('nonce', nonce);
+      if (microsoftAccountType !== null) next.searchParams.set('microsoftAccountType', microsoftAccountType);
       location.replace(next.toString());
     }
 

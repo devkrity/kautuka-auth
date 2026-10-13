@@ -34,7 +34,8 @@ export async function onRequestGet(context) {
     return text("This sign-in link is not valid.", 400);
   }
 
-  const connector = connectors[url.searchParams.get("connector") ?? ""];
+  const connectorId = url.searchParams.get("connector") ?? "";
+  const connector = connectors[connectorId];
   const clientId = connector ? context.env[connector.clientEnv] : "";
   const state = url.searchParams.get("state") ?? "";
   const challenge = url.searchParams.get("challenge") ?? "";
@@ -47,7 +48,17 @@ export async function onRequestGet(context) {
     return text("This sign-in link is not valid.", 400);
   }
 
+  const microsoftAccountType = url.searchParams.get("microsoftAccountType");
+  if (microsoftAccountType !== null &&
+      (connectorId !== "kautuka-login-microsoft" ||
+       !["organizations", "consumers"].includes(microsoftAccountType))) {
+    return text("This sign-in link is not valid.", 400);
+  }
+
   const target = new URL(connector.authorize);
+  if (microsoftAccountType !== null) {
+    target.pathname = `/${microsoftAccountType}/oauth2/v2.0/authorize`;
+  }
   target.searchParams.set("client_id", clientId);
   target.searchParams.set("response_type", "code");
   target.searchParams.set("redirect_uri", `${url.origin}/callback`);
