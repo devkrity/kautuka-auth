@@ -4,33 +4,52 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kautuka sign-in</title>
-  <style>
-    body { font-family: "Segoe UI", sans-serif; margin: 2rem; color: #1c1917; }
-    p { max-width: 36rem; }
-  </style>
 </head>
 <body>
   <p id="status">Returning to Kautuka…</p>
   <script type="module">
-    import { isAllowedReturn } from '/return-path.js';
-
-    const status = document.getElementById('status');
+    const status = document.querySelector('#status');
     const query = new URLSearchParams(location.search);
-    const stored = sessionStorage.getItem('kautukaAuthReturn');
-    const connector = sessionStorage.getItem('kautukaAuthConnector');
-    sessionStorage.removeItem('kautukaAuthReturn');
-    sessionStorage.removeItem('kautukaAuthConnector');
-    if (!isAllowedReturn(stored, connector)) {
-      status.textContent = 'Kautuka could not find the browser you started from. Start again from Kautuka.';
+    const wrappedState = query.get('state') ?? '';
+
+    if (!wrappedState.startsWith('k1.')) {
+      status.textContent = 'This sign-in response is not valid. Start again from Kautuka.';
     } else {
-      const target = new URL(stored);
-      const hash = new URLSearchParams();
-      for (const name of ['code', 'state', 'error', 'error_description']) {
-        const value = query.get(name);
-        if (value) hash.set(name, value);
+      await completeCallback(wrappedState.slice(3));
+    }
+
+    async function completeCallback(ticket) {
+      try {
+        if (sessionStorage.getItem('kautukaAuthTicket') !== ticket) throw new Error('Browser session mismatch');
+        const response = await fetch('/callback/validate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ ticket }),
+        });
+        if (!response.ok) throw new Error('Ticket validation failed');
+
+        const claims = await response.json();
+        const target = new URL(claims.returnUrl);
+        const storedReturn = new URL(sessionStorage.getItem('kautukaAuthReturn'));
+        if (target.origin !== storedReturn.origin || target.pathname !== storedReturn.pathname) {
+          throw new Error('Browser return target mismatch');
+        }
+
+        const fragment = new URLSearchParams();
+        for (const name of ['code', 'error', 'error_description']) {
+          const value = query.get(name);
+          if (value) fragment.set(name, value);
+        }
+        fragment.set('state', claims.state);
+        fragment.set('broker_ticket', ticket);
+        sessionStorage.removeItem('kautukaAuthTicket');
+        sessionStorage.removeItem('kautukaAuthReturn');
+        target.hash = fragment.toString();
+        location.replace(target.toString());
+      } catch {
+        status.textContent = 'Kautuka could not verify this browser session. Start again from Kautuka.';
       }
-      target.hash = hash.toString();
-      location.replace(target.toString());
     }
   </script>
 </body>

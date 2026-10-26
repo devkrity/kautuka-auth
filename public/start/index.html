@@ -6,45 +6,87 @@
   <title>Kautuka sign-in</title>
   <style>
     body { font-family: "Segoe UI", sans-serif; margin: 2rem; color: #1c1917; }
-    p { max-width: 36rem; }
+    main { max-width: 36rem; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1rem; }
+    dt { font-weight: 600; }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    button { padding: .65rem 1rem; font: inherit; }
+    button:disabled { opacity: .5; }
   </style>
 </head>
 <body>
-  <p id="status">Continuing to sign in…</p>
+  <main>
+    <h1>Confirm sign-in</h1>
+    <p id="status">Review the destination and request before continuing.</p>
+    <dl id="request-details" hidden>
+      <dt>Appliance</dt><dd id="appliance-origin"></dd>
+      <dt>Request</dt><dd id="request-purpose"></dd>
+    </dl>
+    <button id="confirm" type="button">Confirm and continue</button>
+  </main>
   <script type="module">
     import { isAllowedReturn, returnPathFor } from '/return-path.js';
 
-    const status = document.getElementById('status');
-    const params = new URLSearchParams(location.hash.startsWith('#') ? location.hash.slice(1) : location.hash);
-    const returnUrl = params.get('return');
-    const connector = params.get('connector');
-    const state = params.get('state');
-    const challenge = params.get('challenge');
-    const nonce = params.get('nonce');
-    const microsoftAccountType = params.get('microsoftAccountType');
-    const validAccountType = microsoftAccountType === null ||
-      (connector === 'kautuka-login-microsoft' && ['organizations', 'consumers'].includes(microsoftAccountType));
-    const login = returnPathFor(connector) === '/login/callback';
-    if (!validAccountType || !isAllowedReturn(returnUrl, connector) || !isConnector(connector) || !isPkce(state) || !isPkce(challenge) || (login && !isPkce(nonce))) {
+    const status = document.querySelector('#status');
+    const button = document.querySelector('#confirm');
+    const details = document.querySelector('#request-details');
+    const originLabel = document.querySelector('#appliance-origin');
+    const purposeLabel = document.querySelector('#request-purpose');
+    const params = new URLSearchParams(location.hash.slice(1));
+    const data = {
+      returnUrl: params.get('return'),
+      connector: params.get('connector'),
+      state: params.get('state'),
+      challenge: params.get('challenge'),
+      nonce: params.get('nonce'),
+      microsoftAccountType: params.get('microsoftAccountType'),
+    };
+    const login = returnPathFor(data.connector) === '/login/callback';
+    const purposes = {
+      'kautuka-google-mail': 'Connect a Google mailbox to Kautuka',
+      'kautuka-m365-mail': 'Connect a Microsoft 365 mailbox to Kautuka',
+      'kautuka-login-google': 'Sign in to Kautuka with Google',
+      'kautuka-login-microsoft': 'Sign in to Kautuka with Microsoft',
+    };
+    const valid = isAllowedReturn(data.returnUrl, data.connector)
+      && /^[A-Za-z0-9_-]{43,128}$/.test(data.state ?? '')
+      && /^[A-Za-z0-9_-]{43,128}$/.test(data.challenge ?? '')
+      && (!login || /^[A-Za-z0-9_-]{43,128}$/.test(data.nonce ?? ''))
+      && (data.microsoftAccountType == null
+        || data.connector === 'kautuka-login-microsoft'
+          && ['organizations', 'consumers'].includes(data.microsoftAccountType));
+
+    if (!valid) {
       status.textContent = 'This sign-in link is not valid. Start again from Kautuka.';
+      button.disabled = true;
     } else {
-      sessionStorage.setItem('kautukaAuthReturn', returnUrl);
-      sessionStorage.setItem('kautukaAuthConnector', connector);
-      const next = new URL('/authorize', location.origin);
-      next.searchParams.set('connector', connector);
-      next.searchParams.set('state', state);
-      next.searchParams.set('challenge', challenge);
-      if (login) next.searchParams.set('nonce', nonce);
-      if (microsoftAccountType !== null) next.searchParams.set('microsoftAccountType', microsoftAccountType);
-      location.replace(next.toString());
+      originLabel.textContent = new URL(data.returnUrl).origin;
+      purposeLabel.textContent = purposes[data.connector];
+      details.hidden = false;
+      button.addEventListener('click', confirmRequest);
     }
 
-    function isConnector(value) {
-      return typeof value === 'string' && /^[a-z0-9-]{1,80}$/.test(value);
-    }
-
-    function isPkce(value) {
-      return typeof value === 'string' && /^[A-Za-z0-9_-]{43,128}$/.test(value);
+    async function confirmRequest() {
+      button.disabled = true;
+      status.textContent = 'Starting sign-in…';
+      try {
+        const response = await fetch('/start/confirm', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(data),
+        });
+        if (!response.ok) throw new Error('Confirmation failed');
+        const { ticket } = await response.json();
+        sessionStorage.setItem('kautukaAuthReturn', data.returnUrl);
+        sessionStorage.setItem('kautukaAuthTicket', ticket);
+        const next = new URL('/authorize', location.origin);
+        next.searchParams.set('ticket', ticket);
+        location.replace(next.toString());
+      } catch {
+        button.disabled = false;
+        status.textContent = 'Sign-in could not start. Try again from Kautuka.';
+      }
     }
   </script>
 </body>
