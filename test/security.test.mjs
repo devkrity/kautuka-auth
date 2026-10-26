@@ -47,7 +47,6 @@ test("ticket returns permit HTTPS and private HTTP appliance callbacks only", ()
   assert.equal(validReturn("http://[fd00::1]:9000/login/callback", claims.connector), true);
   for (const value of [
     "http://public.example.test/login/callback",
-    "http://printer.local/login/callback",
     "http://169.254.169.254/login/callback",
     "http://[fe8::1]/login/callback",
     "http://user@127.0.0.1/login/callback",
@@ -55,6 +54,12 @@ test("ticket returns permit HTTPS and private HTTP appliance callbacks only", ()
     "http://127.0.0.1/%2fadmin",
     "https://xn--not-ascii.test/login/callback",
   ]) {
+    assert.equal(validReturn(value, claims.connector), false, value);
+    assert.equal(isAllowedReturn(value, claims.connector), false, value);
+  }
+  assert.equal(validReturn("http://printer.local/login/callback", claims.connector), true);
+  assert.equal(isAllowedReturn("http://printer.local/login/callback", claims.connector), true);
+  for (const value of ["http://gateway.office.local/login/callback", "http://-invalid.local/login/callback"]) {
     assert.equal(validReturn(value, claims.connector), false, value);
     assert.equal(isAllowedReturn(value, claims.connector), false, value);
   }

@@ -66,7 +66,7 @@ test("confirmation rejects a cross-origin request and a malformed return origin"
   assert.equal(crossOrigin.status, 400);
   const invalid = await confirm({
     env: { AUTH_TICKET_HMAC_KEY: secret },
-    request: new Request(`${authOrigin}/start/confirm`, { method: "POST", headers: { origin: authOrigin, "content-type": "application/json" }, body: JSON.stringify({ returnUrl: "http://printer.local/login/callback", connector: "kautuka-login-google", state, challenge, nonce }) }),
+    request: new Request(`${authOrigin}/start/confirm`, { method: "POST", headers: { origin: authOrigin, "content-type": "application/json" }, body: JSON.stringify({ returnUrl: "http://example.test/login/callback", connector: "kautuka-login-google", state, challenge, nonce }) }),
   });
   assert.equal(invalid.status, 400);
 });

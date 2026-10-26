@@ -42,6 +42,7 @@ export function isAllowedReturn(value, connector) {
 function isPrivateHost(hostname) {
   const host = hostname.toLowerCase();
   if (host === "localhost" || host === "127.0.0.1" || host === "[::1]") return true;
+  if (/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.local$/.test(host)) return true;
   if (host.startsWith("[")) {
     const firstGroup = host.slice(1, -1).split(":")[0];
     const group = Number.parseInt(firstGroup || "0", 16);
