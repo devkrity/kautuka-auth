@@ -15,9 +15,3 @@ export class DpopState extends DurableObject {
     return this.logic.alarm();
   }
 }
-
-export default {
-  fetch() {
-    return new Response("not found", { status: 404 });
-  },
-};

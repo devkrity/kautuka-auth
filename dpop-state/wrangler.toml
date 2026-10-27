@@ -1,9 +1,0 @@
-name = "kautuka-auth-dpop-state"
-main = "src/index.js"
-compatibility_date = "2026-10-09"
-[[durable_objects.bindings]]
-name = "DPOP_STATE"
-class_name = "DpopState"
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["DpopState"]

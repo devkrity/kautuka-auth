@@ -3,7 +3,7 @@ import { keyPair, signProof, thumbprint } from "../helpers/dpop.mjs";
 import { wrapRefreshToken } from "../../functions/_shared/token-state.js";
 
 const baseUrl = process.env.AUTH_TEST_BASE_URL;
-if (!baseUrl?.startsWith("https://127.0.0.1:")) throw new Error("Set AUTH_TEST_BASE_URL to the local Wrangler Pages HTTPS URL.");
+if (!baseUrl?.startsWith("https://127.0.0.1:")) throw new Error("Set AUTH_TEST_BASE_URL to the local Wrangler Worker HTTPS URL.");
 
 const target = `${baseUrl}/google-mail/token`;
 const startPage = await fetch(`${baseUrl}/start/`);
