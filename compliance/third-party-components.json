@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "applicationLicense": "Apache-2.0",
+  "runtimeDependencyPolicy": "No third-party npm runtime dependencies are currently declared. Adding one must be accompanied by reviewed source, license, and version evidence before compliance generation will pass.",
+  "components": []
+}

@@ -1,0 +1,53 @@
+name: OSS Compliance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Build and inventory Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install locked build dependencies
+        run: npm ci
+
+      - name: Generate notices and component inventory
+        run: node scripts/generate-third-party-compliance.mjs --output-dir compliance-output
+
+      - name: Build deployed Worker bundle
+        run: npm run build
+
+      - name: Generate SPDX SBOMs
+        run: |
+          set -euo pipefail
+          mkdir -p compliance-output
+          syft_image=docker.io/anchore/syft@sha256:4cc92b64ca74ffca4c94d4c8fcc01f217731375300be14d0b6eeb2e82eaa110a
+          docker run --rm -v "$PWD:/src" "$syft_image" \
+            dir:/src/dist/worker \
+            -o spdx-json=/src/compliance-output/kautuka-auth-worker.spdx.json
+          docker run --rm -v "$PWD:/src" "$syft_image" \
+            dir:/src/node_modules \
+            -o spdx-json=/src/compliance-output/kautuka-auth-build-dependencies.spdx.json
+
+      - name: Upload compliance evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: kautuka-auth-compliance-${{ github.sha }}
+          path: compliance-output/**
+          if-no-files-found: error
+          retention-days: 90
