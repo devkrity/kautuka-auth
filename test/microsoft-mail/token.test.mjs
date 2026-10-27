@@ -1,180 +1,199 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
+import { createStateNamespace, stateRequest } from "../helpers/dpop-state.mjs";
+import { keyPair, signProof, thumbprint, verifierChallenge } from "../helpers/dpop.mjs";
+import { issueTicket } from "../../functions/_shared/ticket.js";
+import { unwrapRefreshToken, wrapRefreshToken } from "../../functions/_shared/token-state.js";
 import { onRequestPost, revokeRegisteredKey } from "../../functions/microsoft-mail/token.js";
 
-const clientId = "11111111-1111-1111-1111-111111111111";
-const clientSecret = "host-only-secret";
+const authOrigin = "https://auth.example.test";
+const secret = "0123456789abcdef0123456789abcdef";
+const key = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
+const envTemplate = {
+  AUTH_TICKET_HMAC_KEY: secret,
+  MICROSOFT_CLIENT_ID: "microsoft-client",
+  MICROSOFT_CLIENT_SECRET: "microsoft-host-secret",
+  REFRESH_TOKEN_KEYS: JSON.stringify({ k1: key }),
+  REFRESH_TOKEN_ACTIVE_KID: "k1",
+};
+const verifier = "microsoft-verifier-0123456789012345678901234567";
+const challenge = verifierChallenge(verifier);
 
-test("a token request that already carries a client id is rejected", async () => {
-  const response = await onRequestPost({
-    env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys() },
-    request: new Request("https://auth.example.test/microsoft-mail/token", {
-      method: "POST",
-      headers: { DPoP: "a.b.c" },
-      body: "grant_type=authorization_code&client_id=caller&code=c&code_verifier=v&redirect_uri=https%3A%2F%2Fauth.example.test%2Fcallback",
-    }),
+async function createTicket() {
+  return issueTicket({ AUTH_TICKET_HMAC_KEY: secret }, {
+    aud: authOrigin,
+    returnUrl: "https://appliance.example.test/connectors",
+    connector: "kautuka-m365-mail",
+    state: "S".repeat(43),
+    challenge,
+    nonce: "",
+    microsoftAccountType: "",
   });
-  assert.equal(response.status, 400);
-});
+}
 
-test("the auth host adds the Microsoft client id and keeps the code verifier", async () => {
+test("Microsoft mail exchanges with its broker DPoP URL and returns an encrypted refresh envelope", async () => {
+  const namespace = createStateNamespace();
+  const env = { ...envTemplate, DPOP_STATE: namespace };
+  const pair = await keyPair();
+  const jkt = await thumbprint(pair.publicKey);
+  const target = `${authOrigin}/microsoft-mail/token`;
+  const ticket = await createTicket();
+  const form = new URLSearchParams({
+    grant_type: "authorization_code",
+    scope: "offline_access Mail.ReadWrite Mail.Send User.Read",
+    code: "microsoft-code",
+    code_verifier: verifier,
+    redirect_uri: `${authOrigin}/callback`,
+    broker_ticket: ticket,
+    return_origin: "https://appliance.example.test",
+  });
+  const first = await onRequestPost({ env, request: request(target, form, await signProof(pair, { htu: target })) });
+  assert.equal(first.status, 400);
+  const nonce = first.headers.get("dpop-nonce");
+  assert.ok(nonce);
+
   const previous = globalThis.fetch;
-  let forwarded = "";
-  let forwardedHeaders = null;
-  let calls = 0;
-  globalThis.fetch = async (_url, init) => {
-    calls += 1;
-    forwarded = init.body.toString();
-    forwardedHeaders = init.headers;
-    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  let endpoint;
+  let outbound;
+  let outboundHeaders;
+  globalThis.fetch = async (url, init) => {
+    endpoint = String(url);
+    outbound = new URLSearchParams(init.body);
+    outboundHeaders = init.headers;
+    return json({ access_token: "ms-access", refresh_token: "ms-refresh-secret", expires_in: 3600, scope: "mail" });
   };
   try {
-    const key = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
-    const stored = new Map();
-    const env = { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys(stored) };
-    const body = "grant_type=authorization_code&code=auth-code&code_verifier=verifier-secret&redirect_uri=https://auth.example.test/callback";
-    const challenged = await onRequestPost({
-      env,
-      request: new Request("https://auth.example.test/microsoft-mail/token", {
-        method: "POST",
-        headers: { DPoP: await signProof(key, "auth-code", { htu: "https://auth.example.test/microsoft-mail/token" }) },
-        body,
-      }),
-    });
-    assert.equal(challenged.status, 400);
-    const challenge = await challenged.json();
-    assert.equal(challenge.error, "use_dpop_nonce");
-    const nonce = challenged.headers.get("dpop-nonce");
-    assert.equal(typeof nonce, "string");
-    const proof = await signProof(key, "auth-code", { htu: "https://auth.example.test/microsoft-mail/token", nonce });
-    const response = await onRequestPost({
-      env,
-      request: new Request("https://auth.example.test/microsoft-mail/token", {
-        method: "POST",
-        headers: { DPoP: proof },
-        body,
-      }),
-    });
+    const proof = await signProof(pair, { htu: target, nonce });
+    const response = await onRequestPost({ env, request: request(target, form, proof) });
     assert.equal(response.status, 200);
-    assert.match(forwarded, /client_id=11111111-1111-1111-1111-111111111111/);
-    assert.match(forwarded, /code_verifier=verifier-secret/);
-    assert.match(forwarded, /client_secret=host-only-secret/);
-    assert.doesNotMatch(forwarded, /client_secret=caller/);
-    assert.equal(forwardedHeaders.dpop, undefined);
-    const replay = await onRequestPost({
-      env,
-      request: new Request("https://auth.example.test/microsoft-mail/token", {
-        method: "POST",
-        headers: { DPoP: proof },
-        body,
-      }),
-    });
-    assert.equal(replay.status, 400);
-    assert.equal(calls, 1);
+    const payload = await response.json();
+    assert.equal(endpoint, "https://login.microsoftonline.com/common/oauth2/v2.0/token");
+    assert.equal(payload.access_token, "ms-access");
+    assert.match(payload.refresh_token, /^krt1\.k1\./);
+    assert.equal(await unwrapRefreshToken(env, "microsoft-mail", jkt, payload.refresh_token), "ms-refresh-secret");
+    assert.equal(outbound.get("client_id"), "microsoft-client");
+    assert.equal(outbound.get("client_secret"), "microsoft-host-secret");
+    assert.equal(outbound.get("code_verifier"), verifier);
+    assert.equal(outbound.has("broker_ticket"), false);
+    assert.equal(outbound.has("return_origin"), false);
+    assert.equal(outboundHeaders.dpop, undefined);
   } finally {
     globalThis.fetch = previous;
   }
 });
 
-test("a refresh without a registered key is rejected", async () => {
-  const key = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
-  const nonce = "0123456789abcdef";
-  const proof = await signProof(key, null, {
-    htu: "https://auth.example.test/microsoft-mail/token",
-    jti: "0123456789abcdef",
-    nonce,
-  });
-  const response = await onRequestPost({
-    env: { MICROSOFT_CLIENT_ID: clientId, MICROSOFT_CLIENT_SECRET: clientSecret, MICROSOFT_MAIL_KEYS: memoryKeys(new Map([[`nonce:${nonce}`, "1"]])) },
-    request: new Request("https://auth.example.test/microsoft-mail/token", {
-      method: "POST",
-      headers: { DPoP: proof },
-      body: "grant_type=refresh_token&refresh_token=token",
-    }),
-  });
-  assert.equal(response.status, 403);
-});
-
-test("a bearer token cannot delete a registered key", async () => {
-  const jkt = "A".repeat(43);
-  const stored = new Map([[jkt, "1"]]);
-  const response = await revokeRegisteredKey(
-    { MICROSOFT_MAIL_KEYS: memoryKeys(stored), REVOKE_TOKEN: "spare-token" },
-    new Request(`https://auth.kautuka.io/microsoft-mail/keys/${jkt}`, {
-      method: "DELETE",
-      headers: { authorization: "Bearer spare-token" },
-    }),
-    jkt,
-  );
-  assert.equal(response.status, 401);
-  assert.equal(stored.has(jkt), true);
-});
-
-test("disconnect removes the registered Microsoft key", async () => {
-  const key = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
-  const jkt = await thumbprint(await crypto.subtle.exportKey("jwk", key.publicKey));
-  const proof = await signProof(key, null, {
-    htm: "DELETE",
-    htu: `https://auth.kautuka.io/microsoft-mail/keys/${jkt}`,
-    jti: "0123456789abcdef",
-  });
-  const stored = new Map([[jkt, "1"]]);
-  const response = await revokeRegisteredKey(
-    { MICROSOFT_MAIL_KEYS: memoryKeys(stored) },
-    new Request("https://auth.kautuka.io/microsoft-mail/keys/" + jkt, { method: "DELETE", headers: { DPoP: proof } }),
-    jkt,
-  );
-  assert.equal(response.status, 204);
-  assert.equal(stored.has(jkt), false);
-});
-
-function memoryKeys(stored = new Map()) {
-  return {
-    get: (name) => stored.get(name) ?? null,
-    put: (name, value) => stored.set(name, value),
-    delete: (name) => stored.delete(name),
+test("Microsoft refresh unwraps only matching-key envelopes and rejects raw, other-key, and revoked tokens", async () => {
+  const namespace = createStateNamespace();
+  const env = { ...envTemplate, DPOP_STATE: namespace };
+  const pair = await keyPair();
+  const otherPair = await keyPair();
+  const jkt = await thumbprint(pair.publicKey);
+  const otherJkt = await thumbprint(otherPair.publicKey);
+  const envelope = await wrapRefreshToken(env, "microsoft-mail", jkt, "microsoft-provider-refresh");
+  const target = `${authOrigin}/microsoft-mail/token`;
+  const previous = globalThis.fetch;
+  let calls = 0;
+  let upstreamRefresh;
+  globalThis.fetch = async (_url, init) => {
+    calls += 1;
+    upstreamRefresh = new URLSearchParams(init.body).get("refresh_token");
+    assert.equal(init.headers.dpop, undefined);
+    return json({ access_token: "refreshed-access", token_type: "Bearer" });
   };
-}
+  try {
+    const nonce = (await stateRequest(namespace, "microsoft-mail", jkt, "nonce")).body.nonce;
+    const success = await onRequestPost({
+      env,
+      request: request(target, new URLSearchParams({ grant_type: "refresh_token", scope: "offline_access Mail.ReadWrite Mail.Send User.Read", refresh_token: envelope }), await signProof(pair, { htu: target, nonce })),
+    });
+    assert.equal(success.status, 200);
+    const payload = await success.json();
+    assert.equal(upstreamRefresh, "microsoft-provider-refresh");
+    assert.equal(await unwrapRefreshToken(env, "microsoft-mail", jkt, payload.refresh_token), "microsoft-provider-refresh");
+    assert.doesNotMatch(JSON.stringify(payload), /microsoft-provider-refresh/);
 
-async function signProof(key, code, target = {}) {
-  const exported = await crypto.subtle.exportKey("jwk", key.publicKey);
-  const header = base64Url(JSON.stringify({
-    typ: "dpop+jwt",
-    alg: "ES256",
-    jwk: { kty: "EC", crv: "P-256", x: exported.x, y: exported.y },
-  }));
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(code ?? ""));
-  const payload = base64Url(JSON.stringify({
-    htm: target.htm ?? "POST",
-    htu: target.htu ?? "https://auth.example.test/microsoft-mail/token",
-    iat: Math.floor(Date.now() / 1000),
-    jti: target.jti ?? base64UrlBytes(new Uint8Array(digest)),
-    ...(target.nonce ? { nonce: target.nonce } : {}),
-  }));
-  const signature = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" },
-    key.privateKey,
-    new TextEncoder().encode(`${header}.${payload}`),
-  );
-  return `${header}.${payload}.${base64UrlBytes(new Uint8Array(signature))}`;
-}
+    const wrongNonce = (await stateRequest(namespace, "microsoft-mail", otherJkt, "nonce")).body.nonce;
+    const wrongKey = await onRequestPost({
+      env,
+      request: request(target, new URLSearchParams({ grant_type: "refresh_token", scope: "offline_access Mail.ReadWrite Mail.Send User.Read", refresh_token: envelope }), await signProof(otherPair, { htu: target, nonce: wrongNonce })),
+    });
+    assert.equal(wrongKey.status, 400);
 
-async function thumbprint(jwk) {
-  const canonical = JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
-  return base64UrlBytes(new Uint8Array(digest));
-}
+    const rawNonce = (await stateRequest(namespace, "microsoft-mail", jkt, "nonce")).body.nonce;
+    const raw = await onRequestPost({
+      env,
+      request: request(target, new URLSearchParams({ grant_type: "refresh_token", scope: "offline_access Mail.ReadWrite Mail.Send User.Read", refresh_token: "microsoft-provider-refresh" }), await signProof(pair, { htu: target, nonce: rawNonce })),
+    });
+    assert.equal(raw.status, 400);
+    assert.equal(calls, 1);
 
-function base64Url(text) {
-  return base64UrlBytes(new TextEncoder().encode(text));
-}
-
-function base64UrlBytes(bytes) {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+    await stateRequest(namespace, "microsoft-mail", jkt, "revoke");
+    const revokedNonce = (await stateRequest(namespace, "microsoft-mail", jkt, "nonce")).body.nonce;
+    const revoked = await onRequestPost({
+      env,
+      request: request(target, new URLSearchParams({ grant_type: "refresh_token", scope: "offline_access Mail.ReadWrite Mail.Send User.Read", refresh_token: envelope }), await signProof(pair, { htu: target, nonce: revokedNonce })),
+    });
+    assert.equal(revoked.status, 403);
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = previous;
   }
+});
+test("Microsoft rejects caller client credentials and raw refresh tokens", async () => {
+  const namespace = createStateNamespace();
+  const env = { ...envTemplate, DPOP_STATE: namespace };
+  const pair = await keyPair();
+  const jkt = await thumbprint(pair.publicKey);
+  const target = `${authOrigin}/microsoft-mail/token`;
+  const badCredentials = await onRequestPost({
+    env,
+    request: request(target, new URLSearchParams({ grant_type: "authorization_code", client_id: "caller", client_secret: "caller" }), "bad.proof"),
+  });
+  assert.equal(badCredentials.status, 400);
 
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+  const issued = await namespace.get(namespace.idFromName(`microsoft-mail:${jkt}`)).fetch("https://state.internal", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "nonce" }),
+  });
+  const nonce = (await issued.json()).nonce;
+  const proof = await signProof(pair, { htu: target, nonce });
+  const refresh = await onRequestPost({
+    env,
+    request: request(target, new URLSearchParams({ grant_type: "refresh_token", scope: "offline_access Mail.ReadWrite Mail.Send User.Read", refresh_token: "plain-provider-token" }), proof),
+  });
+  assert.equal(refresh.status, 400);
+});
+
+test("Microsoft disconnect requires a valid envelope, DPoP nonce, and permanently revokes that thumbprint", async () => {
+  const namespace = createStateNamespace();
+  const env = { ...envTemplate, DPOP_STATE: namespace };
+  const pair = await keyPair();
+  const jkt = await thumbprint(pair.publicKey);
+  const target = `${authOrigin}/microsoft-mail/keys/${jkt}`;
+  const envelope = await (await import("../../functions/_shared/token-state.js")).wrapRefreshToken(env, "microsoft-mail", jkt, "ms-refresh-secret");
+  const rawProof = await signProof(pair, { htm: "DELETE", htu: target });
+  const raw = await revokeRegisteredKey(env, deleteRequest(target, rawProof, "plain-provider-token"), jkt);
+  assert.equal(raw.status, 403);
+
+  const challenge = await revokeRegisteredKey(env, deleteRequest(target, rawProof, envelope), jkt);
+  assert.equal(challenge.status, 400);
+  const nonce = challenge.headers.get("dpop-nonce");
+  const proof = await signProof(pair, { htm: "DELETE", htu: target, nonce });
+  const response = await revokeRegisteredKey(env, deleteRequest(target, proof, envelope), jkt);
+  assert.equal(response.status, 204);
+  const stored = await namespace.get(namespace.idFromName(`microsoft-mail:${jkt}`)).fetch("https://state.internal", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "get" }),
+  });
+  assert.deepEqual(await stored.json(), { revoked: true });
+});
+
+function request(url, form, proof) {
+  return new Request(url, { method: "POST", headers: { DPoP: proof }, body: form.toString() });
+}
+
+function deleteRequest(url, proof, refreshToken) {
+  return new Request(url, { method: "DELETE", headers: { DPoP: proof }, body: new URLSearchParams({ refresh_token: refreshToken }) });
+}
+
+function json(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }

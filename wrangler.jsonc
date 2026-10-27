@@ -1,21 +1,8 @@
 {
   "name": "kautuka-auth",
   "compatibility_date": "2026-10-09",
-  "main": "./dist/worker/index.js",
-  "assets": {
-    "directory": "./public",
-    "binding": "ASSETS"
-  },
-  "kv_namespaces": [
-    {
-      // Registered Google sign-in key thumbprints. The binding name is what the token function reads.
-      "binding": "GOOGLE_MAIL_KEYS",
-      "id": "e3081a8eef574c1b8dfe64e80ace9353"
-    },
-    {
-      // Registered Microsoft sign-in key thumbprints.
-      "binding": "MICROSOFT_MAIL_KEYS",
-      "id": "e140285625a6476fabec7f456532e7a5"
-    }
-  ]
+  "main": "./worker-entry.js",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "durable_objects": { "bindings": [{ "name": "DPOP_STATE", "class_name": "DpopState" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DpopState"] }]
 }
