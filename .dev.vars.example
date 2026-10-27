@@ -1,3 +1,4 @@
+# Local development only. Leave blank unless using disposable provider test accounts.
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 MICROSOFT_CLIENT_ID=
@@ -6,3 +7,11 @@ GOOGLE_LOGIN_CLIENT_ID=
 GOOGLE_LOGIN_CLIENT_SECRET=
 MICROSOFT_LOGIN_CLIENT_ID=
 MICROSOFT_LOGIN_CLIENT_SECRET=
+
+# Ticket and refresh-token cryptography. Generate disposable values locally; never commit this file.
+# AUTH_TICKET_HMAC_KEY: random secret with at least 32 bytes.
+AUTH_TICKET_HMAC_KEY=
+# REFRESH_TOKEN_KEYS: JSON object mapping key IDs to base64-encoded 32-byte AES keys.
+REFRESH_TOKEN_KEYS=
+# REFRESH_TOKEN_ACTIVE_KID: key ID present in REFRESH_TOKEN_KEYS.
+REFRESH_TOKEN_ACTIVE_KID=

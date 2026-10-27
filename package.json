@@ -7,9 +7,13 @@
     "test": "node --test test/authorize.test.mjs test/return-path.test.mjs test/login/exchange.test.mjs test/google-mail/token.test.mjs test/microsoft-mail/token.test.mjs test/security.test.mjs test/start-ui.test.mjs",
     "test:runtime": "node test/durable/live-runtime.mjs",
     "build": "wrangler pages functions build --outdir=./dist/worker/",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "setup": "npm ci"
   },
   "devDependencies": {
     "wrangler": "^4.42.0"
+  },
+  "engines": {
+    "node": ">=26 <27"
   }
 }
