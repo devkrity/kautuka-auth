@@ -5,7 +5,7 @@ import { issueTicket } from "../../functions/_shared/ticket.js";
 import { onRequestPost as google } from "../../functions/login/google/token.js";
 import { onRequestPost as microsoft } from "../../functions/login/microsoft/token.js";
 
-const secret = "0123456789abcdef0123456789abcdef";
+const secret = "test-secret";
 const authOrigin = "https://auth.example.test";
 const applianceOrigin = "https://appliance.example.test";
 const verifier = "verifier-01234567890123456789012345678901234567890";

@@ -1,5 +1,7 @@
 # kautuka-auth
 
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+
 License: [Apache-2.0](LICENSE).
 
 Sign-in host for official Kautuka appliances. It creates short lived HMAC signed broker tickets after an explicit browser confirmation, adds the OAuth client id, and handles login and mail token exchange. The appliance retains the PKCE verifier. Hosted mail refresh tokens are returned only as AES-GCM envelopes and are bound to the DPoP public key thumbprint.

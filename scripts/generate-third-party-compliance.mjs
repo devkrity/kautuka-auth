@@ -49,9 +49,38 @@ const inventory = {
     requestedVersion,
     resolvedVersion: lock.packages[`node_modules/${name}`]?.version ?? null,
   })),
+  buildDependencies: Object.entries(lock.packages)
+    .filter(([location]) => location.startsWith('node_modules/'))
+    .map(([location, metadata]) => ({
+      name: location.slice('node_modules/'.length),
+      version: metadata.version ?? 'unknown',
+      license: typeof metadata.license === 'string' ? metadata.license : metadata.license ? JSON.stringify(metadata.license) : 'NOT DETECTED',
+      source: metadata.resolved ?? `https://www.npmjs.com/package/${location.slice('node_modules/'.length)}/v/${metadata.version ?? 'unknown'}`,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version)),
   components: catalog.components,
 };
 await writeFile(path.join(output, 'THIRD_PARTY_COMPONENTS.json'), `${JSON.stringify(inventory, null, 2)}\n`);
+
+const missingBuildLicenses = inventory.buildDependencies.filter((component) => component.license === 'NOT DETECTED');
+if (missingBuildLicenses.length > 0) {
+  throw new Error(`The npm lockfile has ${missingBuildLicenses.length} build dependencies without license metadata; review them before generating release credits.`);
+}
+const credits = [
+  `# ${packageJson.name} third-party credits`,
+  '',
+  'The Worker has no third-party npm runtime dependencies. This inventory lists every locked npm package used by the local build and compliance workflow; those packages are development/build tools and are not included in the deployed Worker bundle.',
+  '',
+  `Resolved packages: ${inventory.buildDependencies.length}. The dependency versions and tarball locators come from the committed package lockfile.`,
+  '',
+  '| Package | Version | License | Source |',
+  '| --- | --- | --- | --- |',
+  ...inventory.buildDependencies.map((component) => `| ${component.name.replaceAll('|', '\\|')} | ${component.version} | ${component.license} | ${component.source} |`),
+  '',
+  'Cloudflare Workers APIs and the repository-local DpopState Durable Object are platform APIs and first-party source, respectively.',
+  '',
+];
+await writeFile(path.join(output, 'CREDITS.md'), credits.join('\n'));
 
 const notices = [
   `kautuka-auth - Third-party software notices`,
@@ -59,6 +88,7 @@ const notices = [
   'The deployed Worker currently has no third-party npm runtime dependencies. Its application source is licensed under Apache-2.0; see LICENSE.',
   'Cloudflare Workers APIs and the repository-local DpopState Durable Object are platform APIs and first-party source, respectively.',
   'Wrangler and its locked transitive packages are development/build tooling. They are recorded in the attached build-dependencies SBOM and are not bundled into the deployed Worker.',
+  'The complete locked build-package list and detected license expressions are in the accompanying CREDITS.md.',
   'If a third-party runtime dependency is introduced, update the reviewed component catalog and ensure applicable notices and license texts are published with the Worker release.',
   '',
 ];

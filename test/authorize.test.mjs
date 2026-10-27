@@ -3,7 +3,7 @@ import test from "node:test";
 import { onRequestPost as confirm } from "../functions/start/confirm.js";
 import { onRequestGet as authorize } from "../functions/authorize.js";
 
-const secret = "0123456789abcdef0123456789abcdef";
+const secret = "test-secret";
 const challenge = "a".repeat(43);
 const state = "b".repeat(43);
 const nonce = "c".repeat(43);
