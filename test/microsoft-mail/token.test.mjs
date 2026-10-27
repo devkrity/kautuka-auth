@@ -7,7 +7,7 @@ import { unwrapRefreshToken, wrapRefreshToken } from "../../functions/_shared/to
 import { onRequestPost, revokeRegisteredKey } from "../../functions/microsoft-mail/token.js";
 
 const authOrigin = "https://auth.example.test";
-const secret = "test-secret";
+const secret = "0123456789abcdef0123456789abcdef";
 const key = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
 const envTemplate = {
   AUTH_TICKET_HMAC_KEY: secret,
