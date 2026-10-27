@@ -5,23 +5,129 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kautuka sign-in</title>
   <style>
-    body { font-family: "Segoe UI", sans-serif; margin: 2rem; color: #1c1917; }
-    main { max-width: 36rem; }
-    dl { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1rem; }
-    dt { font-weight: 600; }
-    dd { margin: 0; overflow-wrap: anywhere; }
-    button { padding: .65rem 1rem; font: inherit; }
-    button:disabled { opacity: .5; }
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: #102448;
+      background: #fbfbfa;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      --kautuka-blue: #1858e8;
+      --kautuka-ink: #102448;
+      --kautuka-muted: #52617a;
+      --kautuka-border: #d8dce3;
+      --kautuka-surface: #f0f4fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      min-height: 100svh;
+      margin: 0;
+      padding: 32px 20px;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgb(24 88 232 / 8%), transparent 52%),
+        #fbfbfa;
+    }
+    main {
+      position: relative;
+      width: min(100%, 480px);
+      padding: 32px;
+      overflow: hidden;
+      border: 1px solid var(--kautuka-border);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 16px 44px rgb(16 36 72 / 9%);
+    }
+    main::before {
+      position: absolute;
+      inset: 0 0 auto;
+      height: 4px;
+      background: linear-gradient(90deg, #e34234, #e3a018, #e34234);
+      content: "";
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      margin-bottom: 32px;
+    }
+    .brand-mark { width: 36px; height: 36px; flex: none; }
+    .brand-name { font-size: 17px; font-weight: 700; letter-spacing: -.025em; }
+    .brand-caption {
+      margin-top: 2px;
+      color: var(--kautuka-muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .12em;
+    }
+    h1 { margin: 0; color: var(--kautuka-ink); font-size: clamp(25px, 6vw, 30px); line-height: 1.2; letter-spacing: -.035em; }
+    #status { margin: 10px 0 22px; color: var(--kautuka-muted); font-size: 14px; line-height: 1.55; }
+    dl {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin: 0 0 20px;
+      padding: 18px;
+      border: 1px solid #e5eaf2;
+      border-radius: 6px;
+      background: var(--kautuka-surface);
+    }
+    dl[hidden] { display: none; }
+    dt { margin-bottom: 4px; color: var(--kautuka-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    dd { margin: 0; color: var(--kautuka-ink); font-size: 14px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+    .trust-note { display: flex; align-items: flex-start; gap: 9px; margin: 0 0 22px; color: var(--kautuka-muted); font-size: 12px; line-height: 1.5; }
+    .trust-note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: #385b97; }
+    button {
+      width: 100%;
+      min-height: 46px;
+      padding: 11px 18px;
+      border: 1px solid var(--kautuka-blue);
+      border-radius: 4px;
+      background: var(--kautuka-blue);
+      color: #fff;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 650;
+      cursor: pointer;
+      transition: background-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+    button:hover:not(:disabled) { background: #1049c7; box-shadow: 0 4px 12px rgb(24 88 232 / 20%); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:focus-visible { outline: 3px solid #ffbf47; outline-offset: 3px; }
+    button:disabled { cursor: not-allowed; opacity: .58; }
+    @media (max-width: 480px) { main { padding: 26px 22px; } .brand { margin-bottom: 26px; } }
+    @media (prefers-reduced-motion: reduce) { button { transition: none; } }
   </style>
 </head>
 <body>
   <main>
+    <div class="brand" aria-label="Kautuka secure access">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+        <defs>
+          <linearGradient id="brand-thread"><stop stop-color="#E34234"/><stop offset=".5" stop-color="#E3A018"/><stop offset="1" stop-color="#E34234"/></linearGradient>
+        </defs>
+        <rect width="40" height="40" rx="11" fill="url(#brand-thread)"/>
+        <path d="M11.5 7.5h4v14l8-8h5l-8 8 8 10h-5l-6-7-2 2v5h-4z" fill="#fff"/>
+      </svg>
+      <div>
+        <div class="brand-name">Kautuka</div>
+        <div class="brand-caption">SECURE ACCOUNT ACCESS</div>
+      </div>
+    </div>
     <h1>Confirm sign-in</h1>
     <p id="status">Review the destination and request before continuing.</p>
     <dl id="request-details" hidden>
       <dt>Appliance</dt><dd id="appliance-origin"></dd>
       <dt>Request</dt><dd id="request-purpose"></dd>
     </dl>
+    <p class="trust-note">
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 2.5 3.5 5v4.7c0 4.1 2.8 6.7 6.5 7.8 3.7-1.1 6.5-3.7 6.5-7.8V5L10 2.5Z" stroke="currentColor" stroke-width="1.5"/><path d="m7.2 10 1.8 1.8 3.8-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Continue only if you started this request from your Kautuka appliance.
+    </p>
     <button id="confirm" type="button">Confirm and continue</button>
   </main>
   <script type="module">
