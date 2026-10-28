@@ -33,7 +33,7 @@ The appliance retains the PKCE verifier. The Worker stores DPoP nonce and replay
 
 ## Local development
 
-The repository pins Node.js with [.nvmrc](.nvmrc); `package.json` requires Node 26. Corepack uses the package manager selected by your local npm/Corepack installation. Git and Node.js are required.
+The repository pins Node.js with [.nvmrc](.nvmrc), and `package.json` requires Node 26. Git and Node.js are required.
 
 ### macOS and Linux (bash)
 
@@ -61,15 +61,24 @@ npx wrangler dev
 - `REFRESH_TOKEN_KEYS`: JSON mapping key IDs to base64 encoded 32-byte AES keys.
 - `REFRESH_TOKEN_ACTIVE_KID`: key ID selected from `REFRESH_TOKEN_KEYS` for new envelopes.
 
-For tests that require a live local Worker, build and start `wrangler dev` with disposable test values; follow the isolated runtime test notes below. The local runtime test temporarily disables TLS verification for its loopback-only test server and restores both environment variables afterward.
+The optional runtime test exercises DPoP nonce replay and key revocation against an already-running local Wrangler Worker. Set `AUTH_TEST_BASE_URL` to its HTTPS loopback URL (`https://127.0.0.1:<port>`); use test-only values and a certificate trusted by Node. It does not need real provider credentials.
+
+```bash
+AUTH_TEST_BASE_URL=https://127.0.0.1:8787 npm run test:runtime
+```
 
 ```powershell
+$env:AUTH_TEST_BASE_URL = 'https://127.0.0.1:8787'
 npm run test:runtime
 ```
 
 ## Operating your own hosted service
 
 Only operators running their own Worker need to configure production OAuth applications, Worker secrets, the `auth.kautuka.io` custom domain, and provider callback URL `https://auth.kautuka.io/callback`. See [SECURITY.md](SECURITY.md) before handling real credentials. Local development and normal Kautuka users do not deploy this service.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and pull request guidance. Sign off every commit with `git commit -s` to certify the DCO.
 
 ## License
 
