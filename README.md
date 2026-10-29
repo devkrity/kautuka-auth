@@ -1,46 +1,85 @@
-# kautuka-auth
+# Kautuka Auth
 
+This is the sign-in service Kautuka uses for Google and Microsoft login. You only need it if you run your own copy. See [Kautuka](https://github.com/devkrity/kautuka).
+
+[![CI](https://github.com/devkrity/kautuka-auth/actions/workflows/tests.yml/badge.svg)](https://github.com/devkrity/kautuka-auth/actions/workflows/tests.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
-License: [Apache-2.0](LICENSE).
+## How it works
 
-Sign-in host for official Kautuka appliances. It creates short lived HMAC signed broker tickets after an explicit browser confirmation, adds the OAuth client id, and handles login and mail token exchange. The appliance retains the PKCE verifier. Hosted mail refresh tokens are returned only as AES-GCM envelopes and are bound to the DPoP public key thumbprint.
+1. Kautuka creates a one-time PKCE challenge and sends the user to `/start/` with the connector, return URL, state, and challenge.
+2. The user reviews the requested sign-in and confirms it in the browser. `POST /start/confirm` issues a short-lived signed ticket.
+3. The browser visits `/authorize` with that ticket. This service starts the provider OAuth flow and keeps the ticket in OAuth state.
+4. The provider returns to the `/callback` browser page. It validates the ticket with `/callback/validate`, then returns the provider result to Kautuka.
+5. Kautuka completes login through the provider-specific login token route. For mail connectors, Kautuka exchanges tokens at the provider route and receives refresh credentials only as an encrypted envelope bound to its DPoP key.
 
-`public/` contains the browser pages. `functions/` contains the auth Worker routes. The `kautuka-auth` Worker exports the SQLite-backed `DpopState` Durable Object, which provides atomic DPoP nonce and jti replay protection plus permanent revoked-key tombstones. It does not persist refresh-token envelopes. One Worker deployment provisions or updates both the auth routes and the Durable Object class.
+The appliance retains the PKCE verifier. The Worker stores DPoP nonce and replay state in its SQLite-backed `DpopState` Durable Object.
 
-## Before deploying
+### Routes
 
-1. Set Worker secrets `AUTH_TICKET_HMAC_KEY`, `REFRESH_TOKEN_KEYS`, and `REFRESH_TOKEN_ACTIVE_KID`. Generate at least 32 random bytes for the HMAC secret. `REFRESH_TOKEN_KEYS` is a JSON object mapping key ids to base64-encoded 32-byte AES keys, for example `{"k2026a":"<base64-32-byte-key>"}`. Set `REFRESH_TOKEN_ACTIVE_KID` to a key id in that map. Never store these values in source control.
-2. For AES key rotation, add the new key id and key to `REFRESH_TOKEN_KEYS`, then change `REFRESH_TOKEN_ACTIVE_KID`. Keep old keys available to decrypt existing envelopes until all associated refresh tokens have been revoked or rotated; remove an old key only after that. Ticket HMAC rotation invalidates outstanding tickets, which expire after five minutes.
-3. Set OAuth Worker secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID`, and `MICROSOFT_CLIENT_SECRET` for mailbox sign-in. Appliance login uses a separate pair: `GOOGLE_LOGIN_CLIENT_ID`, `GOOGLE_LOGIN_CLIENT_SECRET`, `MICROSOFT_LOGIN_CLIENT_ID`, and `MICROSOFT_LOGIN_CLIENT_SECRET`. Non-production Workers must use their own login apps and client ids. The Microsoft login app must request both optional ID-token claims `email` and `xms_edov` (under `optionalClaims.idToken` in the app manifest). `xms_edov` lets Kautuka accept invite redemptions only when Microsoft attests that the email domain is verified.
-4. Attach `auth.kautuka.io` to the `kautuka-auth` Worker. Configure its provider callback URL as exactly `https://auth.kautuka.io/callback` for each OAuth app. The ticket is carried in OAuth `state`; no callback query string is needed.
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/start/` | GET | Display the connection confirmation page. |
+| `/start/confirm` | POST | Validate the browser confirmation and issue a ticket. |
+| `/authorize` | GET | Begin the selected provider OAuth flow. |
+| `/callback` | GET | Handle the provider redirect in the browser. |
+| `/callback/validate` | POST | Validate the ticket before returning the provider result to Kautuka. |
+| `/login/google/token` | POST | Exchange the Google login authorization code. |
+| `/login/microsoft/token` | POST | Exchange the Microsoft login authorization code. |
+| `/google-mail/token` | POST | Exchange Google mail authorization and encrypted refresh token. |
+| `/google-mail/keys/:jkt` | DELETE | Revoke a registered Google mail DPoP key. |
+| `/microsoft-mail/token` | POST | Exchange Microsoft mail authorization and encrypted refresh token. |
+| `/microsoft-mail/keys/:jkt` | DELETE | Revoke a registered Microsoft mail DPoP key. |
 
-## Build and validate
+## Local development
 
-```powershell
-npm install
+The repository pins Node.js with [.nvmrc](.nvmrc), and `package.json` requires Node 26. Git and Node.js are required.
+
+### macOS and Linux (bash)
+
+```bash
+cp .dev.vars.example .dev.vars
+npm ci
 npm test
 npm run build
-npx wrangler deploy --dry-run
+npx wrangler dev
 ```
 
-`npm run test:runtime` exercises the Durable Object nonce/jti race and revocation through the compiled local Worker, and checks the actual `/start/` response frame headers. Start one local Worker dev server first:
+### Windows (PowerShell)
 
 ```powershell
+Copy-Item .dev.vars.example .dev.vars
+npm ci
+npm test
 npm run build
-npx wrangler dev --local-protocol https --port 8791 --var GOOGLE_CLIENT_ID:test-client --var GOOGLE_CLIENT_SECRET:test-secret --var 'REFRESH_TOKEN_KEYS:{"k1":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}' --var REFRESH_TOKEN_ACTIVE_KID:k1
-$previousAuthTestBaseUrl = $env:AUTH_TEST_BASE_URL
-$previousTlsVerification = $env:NODE_TLS_REJECT_UNAUTHORIZED
-try {
-  $env:AUTH_TEST_BASE_URL = 'https://127.0.0.1:8791'
-  $env:NODE_TLS_REJECT_UNAUTHORIZED = '0'
-  npm run test:runtime
-} finally {
-  $env:AUTH_TEST_BASE_URL = $previousAuthTestBaseUrl
-  $env:NODE_TLS_REJECT_UNAUTHORIZED = $previousTlsVerification
-}
+npx wrangler dev
 ```
 
-The local command disables certificate verification only for this loopback test server. `test/start-ui.test.mjs` executes the start page code with a small DOM harness to ensure the destination and purpose are shown, and no fetch or redirect occurs before the confirmation click. `npx wrangler deploy --dry-run` validates the Worker bundle and SQLite Durable Object migration without deploying. `npm run deploy` builds and deploys the single `kautuka-auth` Worker.
+`.dev.vars.example` contains blank placeholders. Add local OAuth credentials only if you need to test a real provider round trip. Never commit `.dev.vars`. The three signing/encryption settings are needed for token exchange:
 
-For Cloudflare Workers Builds, keep one Git connection to this repository with production branch `main`. Set the deploy command to `npm run deploy`, or set the build command to `npm run build` and the deploy command to `npx wrangler deploy`. Both configurations publish one Worker and provision its Durable Object class as part of that deployment.
+- `AUTH_TICKET_HMAC_KEY`: local-only random key of at least 32 bytes for ticket signatures.
+- `REFRESH_TOKEN_KEYS`: JSON mapping key IDs to base64 encoded 32-byte AES keys.
+- `REFRESH_TOKEN_ACTIVE_KID`: key ID selected from `REFRESH_TOKEN_KEYS` for new envelopes.
+
+The optional runtime test exercises DPoP nonce replay and key revocation against an already-running local Wrangler Worker. Set `AUTH_TEST_BASE_URL` to its HTTPS loopback URL (`https://127.0.0.1:<port>`); use test-only values and a certificate trusted by Node. It does not need real provider credentials.
+
+```bash
+AUTH_TEST_BASE_URL=https://127.0.0.1:8787 npm run test:runtime
+```
+
+```powershell
+$env:AUTH_TEST_BASE_URL = 'https://127.0.0.1:8787'
+npm run test:runtime
+```
+
+## Operating your own hosted service
+
+Only operators running their own Worker need to configure production OAuth applications, Worker secrets, the `auth.kautuka.io` custom domain, and provider callback URL `https://auth.kautuka.io/callback`. See [SECURITY.md](SECURITY.md) before handling real credentials. Local development and normal Kautuka users do not deploy this service.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and pull request guidance. Sign off every commit with `git commit -s` to certify the DCO.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
