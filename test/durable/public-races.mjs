@@ -180,20 +180,23 @@ try {
   assert.equal((await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).refreshes, microsoftRefreshCalls);
   assert.equal((await signed('/installation/mail-disconnect', microsoftCommon, microsoftFlow.dpop)).status, 204);
   const flows = await Promise.all(Array.from({ length: 6 }, () => prepare()));
-  const exchanges = await Promise.all(flows.map(flow => signed('/installation/mail-exchange', { id, flowId: flow.flowId, verifier: flow.verifier }, flow.dpop)));
-  if (exchanges.some(r => ![200, 409].includes(r.status))) console.error('Unexpected exchange statuses', exchanges.map(r => r.status), await exchanges[0].clone().text());
-  assert.equal(exchanges.filter(r => r.status === 200).length, 5, 'five mailboxes admitted');
-  assert.equal(exchanges.filter(r => r.status === 409).length, 1, 'sixth mailbox rejected');
-  assert.equal(exchanges.find(r => r.status === 409).headers.get('kautuka-admission-denied'), 'active_account_limit');
-  const denied = flows[exchanges.findIndex(r => r.status === 409)];
+  const exchanges = await Promise.all(flows.map(async flow => {
+    const response = await signed('/installation/mail-exchange', { id, flowId: flow.flowId, verifier: flow.verifier }, flow.dpop);
+    const credential = response.status === 200 ? await response.json() : undefined;
+    return { response, credential };
+  }));
+  const responses = exchanges.map(exchange => exchange.response);
+  assert.deepEqual(responses.map(r => r.status).sort(), [200, 200, 200, 200, 200, 409], 'five mailboxes admitted and sixth rejected');
+  assert.equal(responses.find(r => r.status === 409).headers.get('kautuka-admission-denied'), 'active_account_limit');
+  const denied = flows[responses.findIndex(r => r.status === 409)];
   const beforeRetry = (await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).exchanges;
   const retry = await signed('/installation/mail-exchange', { id, flowId: denied.flowId, verifier: denied.verifier }, denied.dpop);
   assert.equal(retry.status, 409, 'sixth admission remains terminal');
   assert.equal(retry.headers.get('kautuka-admission-denied'), 'active_account_limit');
   assert.equal((await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).exchanges, beforeRetry,
     'terminal retry must not exchange the provider code again');
-  const admitted = exchanges.map((response, index) => response.status === 200 ? index : -1).filter(index => index >= 0);
-  const partialIndex = admitted[0], partialFlow = flows[partialIndex], partialCredential = await exchanges[partialIndex].json();
+  const admitted = responses.map((response, index) => response.status === 200 ? index : -1).filter(index => index >= 0);
+  const partialIndex = admitted[0], partialFlow = flows[partialIndex], partialCredential = exchanges[partialIndex].credential;
   assert.equal((await signed('/installation/mail-ack', { id, flowId: partialFlow.flowId, verifier: partialFlow.verifier }, partialFlow.dpop)).status, 204);
   const partialCommon = { id, provider: 'google', connectionId: partialFlow.connectionId, flowId: partialFlow.flowId, generation: partialCredential.generation };
   const partialRefresh = { ...partialCommon, operationId: random(), refreshToken: partialCredential.refreshToken };
@@ -214,7 +217,7 @@ try {
   assert.equal((await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).refreshes, partialRefreshCalls,
     'partial refresh retries must not call the provider again');
   assert.equal((await signed('/installation/mail-disconnect', partialCommon, partialFlow.dpop)).status, 204);
-  const index = admitted[1], flow = flows[index], credential = await exchanges[index].json();
+  const index = admitted[1], flow = flows[index], credential = exchanges[index].credential;
   assert.equal((await signed('/installation/mail-ack', { id, flowId: flow.flowId, verifier: flow.verifier }, flow.dpop)).status, 204, 'acknowledge mailbox');
   const common = { id, provider: 'google', connectionId: flow.connectionId, flowId: flow.flowId, generation: credential.generation };
   assert.deepEqual(await (await signed('/installation/mail-status', common, flow.dpop)).json(), { active: true });
@@ -232,7 +235,7 @@ try {
   assert.deepEqual(await (await signed('/installation/mail-status', common, flow.dpop)).json(), { active: false }, 'disconnect remains durable');
   assert.equal((await signed('/installation/mail-refresh', { ...common, operationId: random(), refreshToken: credential.refreshToken }, flow.dpop)).status,
     409, 'a new refresh cannot use the disconnected credential');
-  const racedFlow = flows[admitted[2]], racedCredential = await exchanges[admitted[2]].json();
+  const racedFlow = flows[admitted[2]], racedCredential = exchanges[admitted[2]].credential;
   assert.equal((await signed('/installation/mail-ack', { id, flowId: racedFlow.flowId, verifier: racedFlow.verifier }, racedFlow.dpop)).status, 204);
   const racedCommon = { id, provider: 'google', connectionId: racedFlow.connectionId, flowId: racedFlow.flowId, generation: racedCredential.generation };
   assert.equal((await worker.fetch(`${origin}/__test_partial_refresh`, { method: 'POST' })).status, 204);
@@ -242,7 +245,7 @@ try {
   assert.equal((await worker.fetch(`${origin}/__test_refresh_release`, { method: 'POST' })).status, 204);
   assert.equal((await pendingRefresh).status, 409, 'partial-scope failure cannot revive a disconnected connection');
   assert.deepEqual(await (await signed('/installation/mail-status', racedCommon, racedFlow.dpop)).json(), { active: false });
-  const suspendedFlow = flows[admitted[3]], suspendedCredential = await exchanges[admitted[3]].json();
+  const suspendedFlow = flows[admitted[3]], suspendedCredential = exchanges[admitted[3]].credential;
   assert.equal((await signed('/installation/mail-ack', { id, flowId: suspendedFlow.flowId, verifier: suspendedFlow.verifier }, suspendedFlow.dpop)).status, 204);
   const suspendedCommon = { id, provider: 'google', connectionId: suspendedFlow.connectionId, flowId: suspendedFlow.flowId, generation: suspendedCredential.generation };
   const pendingFlow = await prepare('local-suspended-exchange');
