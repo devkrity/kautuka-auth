@@ -18,7 +18,7 @@ test("built router blocks retired hosted flows before their handlers", async () 
     const response = await worker.fetch(new Request(`https://auth.kautuka.io${path}`, { method: "POST" }), env, context);
     assert.equal(response.status, expected, path);
   }
-  for (const [path, method] of [["/authorize", "GET"], ["/google-mail/keys/test", "DELETE"], ["/microsoft-mail/keys/test", "DELETE"]]) {
+  for (const [path, method] of [["/authorize", "GET"], ["/start/", "GET"], ["/google-mail/keys/test", "DELETE"], ["/microsoft-mail/keys/test", "DELETE"]]) {
     const response = await worker.fetch(new Request(`https://auth.kautuka.io${path}`, { method }), env, context);
     assert.equal(response.status, 410, `${method} ${path}`);
   }

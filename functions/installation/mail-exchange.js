@@ -1,7 +1,7 @@
 import { mailNonceChallenge } from "../_shared/mail-nonce.js";
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
 import { verifyInstallationProof, readBoundedBody, dpopReplayFingerprint } from "../_shared/installation-proof.js";
-import { verifyDpop } from "../_shared/mail-token.js";
+import { verifyDpop } from "../_shared/dpop.js";
 import { isMailIdentityConfigured, resolveMailAccount } from "../_shared/mail-identity.js";
 import { hasRequiredMailScopes } from "../_shared/mail-scopes.js";
 import { isKeyringReady, openMailFlowResult, sealMailFlowResult } from "../_shared/token-state.js";
