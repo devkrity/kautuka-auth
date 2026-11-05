@@ -14,7 +14,7 @@ export async function onRequest(context) {
   catch { return new Response("rejected", { status: 400, headers: { "cache-control": "no-store" } }); }
   // Coordinated breaking cutover: the former ticket/callback and token routes
   // did not enforce installation, browser, account or generation binding.
-  const retired = new Set(["/authorize", "/start/confirm", "/callback/validate", "/login/google/token", "/login/microsoft/token",
+  const retired = new Set(["/authorize", "/start", "/start/confirm", "/callback/validate", "/login/google/token", "/login/microsoft/token",
     "/google-mail/token", "/microsoft-mail/token"]);
   const blocked = retired.has(path) || /^\/(google-mail|microsoft-mail)\/keys(?:\/|$)/.test(path);
   const response = blocked ? new Response("This sign-in flow has been retired.", { status: 410, headers: { "cache-control": "no-store" } })

@@ -50,3 +50,34 @@ test("rejected binding keeps the handoff disabled and never authorizes", async (
   assert.match(result.nodes.get("status").textContent, /could not be verified/);
   assert.equal(result.calls.includes("/handoff/authorize"), false);
 });
+
+async function runCallback(search) {
+  const nodes = new Map(["status", "retry"].map(id => [id, {
+    textContent: "", hidden: true, addEventListener() {},
+  }]));
+  const stored = new Map(), calls = [];
+  const sessionStorage = { getItem: key => stored.get(key) ?? null,
+    setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) };
+  const script = callback.match(/<script type="module">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(script);
+  await vm.runInNewContext(`(async () => { ${script} })()`, {
+    document: { querySelector: selector => nodes.get(selector.slice(1)) },
+    location: { search, pathname: "/callback/" }, history: { replaceState() {} },
+    URLSearchParams, sessionStorage, Date,
+    fetch: async (path, options) => { calls.push({ path, body: JSON.parse(options.body) }); return { status: 204, ok: true }; },
+  });
+  return { nodes, calls };
+}
+
+test("callback delivers successful and denied bound flows without legacy redirect", async () => {
+  for (const [field, value] of [["code", "provider-code"], ["error", "access_denied"]]) {
+    const result = await runCallback(`?state=k2.test&${field}=${value}`);
+    assert.equal(result.calls.length, 1);
+    assert.equal(result.calls[0].path, "/handoff/callback");
+    assert.equal(result.calls[0].body[field], value);
+    assert.match(result.nodes.get("status").textContent, field === "code" ? /Sign-in completed/ : /not completed/);
+  }
+  const legacy = await runCallback("?state=k1.old-ticket&code=provider-code");
+  assert.equal(legacy.calls.length, 0);
+  assert.match(legacy.nodes.get("status").textContent, /not valid/);
+});

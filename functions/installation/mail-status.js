@@ -1,7 +1,7 @@
 import { mailNonceChallenge } from "../_shared/mail-nonce.js";
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
 import { verifyInstallationProof, dpopReplayFingerprint } from "../_shared/installation-proof.js";
-import { verifyDpop } from "../_shared/mail-token.js";
+import { verifyDpop } from "../_shared/dpop.js";
 
 const id = /^[A-Za-z0-9_-]{43}$/;
 

@@ -18,7 +18,6 @@ import { onRequestPost as mailDisconnect } from "../functions/installation/mail-
 import { onRequestPost as mailCancel } from "../functions/installation/mail-cancel.js";
 import { InstallationStateLogic } from "../installation-state/src/state.js";
 import { MemoryObjectStorage } from "./helpers/dpop-state.mjs";
-import { unwrapRefreshToken } from "../functions/_shared/token-state.js";
 
 const origin = "https://auth.kautuka.io";
 const url = `${origin}/installation/register`;
@@ -257,7 +256,6 @@ for (const provider of ["google", "microsoft"]) test(`${provider} mail exchange 
     assert.equal(calls, 2); // A terminal result never calls the provider again.
     const result = await first.json();
     assert.match(result.refreshToken, /^kmf1\./);
-    assert.equal(await unwrapRefreshToken(configuration, `${provider}-mail`, jkt, result.refreshToken), null);
     assert.equal(result.access_token, undefined);
     assert.equal((await mailExchange({ request: await signedRequest("/installation/mail-exchange", payload), env: configuration })).status, 200);
     assert.equal(calls, 2);

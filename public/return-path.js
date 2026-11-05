@@ -1,25 +1,3 @@
-const loginProviders = new Set(["kautuka-login-google", "kautuka-login-microsoft"]);
-const mailProviders = new Set(["kautuka-google-mail", "kautuka-m365-mail"]);
-
-export function returnPathFor(connector) {
-  if (loginProviders.has(connector)) return "/login/callback";
-  if (mailProviders.has(connector)) return "/connectors";
-  return null;
-}
-
-export function isCanonicalOrigin(value) {
-  if (typeof value !== "string" || value.length > 300 || /[%\\\u0000-\u0020\u007f]/.test(value)) return false;
-  try {
-    const url = new URL(value);
-    return url.origin === value && url.protocol === "https:" && url.pathname === "/"
-      && !url.username && !url.password && !url.search && !url.hash
-      && !url.hostname.endsWith(".") && !url.hostname.split(".").some((label) => label.toLowerCase().startsWith("xn--"))
-      && !/[^\x21-\x7e]/.test(url.hostname);
-  } catch {
-    return false;
-  }
-}
-
 // Browser-facing Gateway origins may use HTTP only on the supported local network.
 export function isAllowedGatewayOrigin(value) {
   if (typeof value !== "string" || value.length > 2048 || /[%\\\u0000-\u0020\u007f]/.test(value)) return false;
@@ -32,25 +10,6 @@ export function isAllowedGatewayOrigin(value) {
   } catch {
     return false;
   }
-}
-
-export function isAllowedReturn(value, connector) {
-  const path = returnPathFor(connector);
-  if (!path || typeof value !== "string" || value.length > 3000) return false;
-  if (/[%\\\u0000-\u0020\u007f]/.test(value)) return false;
-
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  if (url.href !== value || url.username || url.password || url.pathname !== path || url.search || url.hash) return false;
-  if (url.hostname.endsWith(".") || /[^\x21-\x7e]/.test(url.hostname)) return false;
-  if (url.hostname.split(".").some((label) => label.toLowerCase().startsWith("xn--"))) return false;
-  if (url.protocol === "https:") return true;
-  if (url.protocol !== "http:") return false;
-  return isPrivateHost(url.hostname);
 }
 
 function isPrivateHost(hostname) {
