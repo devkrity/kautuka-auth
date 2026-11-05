@@ -1,3 +1,4 @@
+import { mailNonceChallenge } from "../_shared/mail-nonce.js";
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
 import { verifyInstallationProof, readBoundedBody } from "../_shared/installation-proof.js";
 import { verifyDpop } from "../_shared/mail-token.js";
@@ -43,7 +44,9 @@ export async function onRequestPost({ request, env }) {
     headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
   try {
     const dpopFingerprint = await digest(JSON.stringify([dpop.jkt, dpop.jti]));
-    const claim = await invoke("claim-mail-refresh", { ...input, dpopFingerprint, thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt });
+    const claim = await invoke("claim-mail-refresh", { ...input, dpopFingerprint, dpopNonce: dpop.nonce, thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt });
+    const nonceChallenge = mailNonceChallenge(claim);
+    if (nonceChallenge) return nonceChallenge;
     if (claim.status === 403) return rejectInvalidProof(env, ip, headers, 403);
     if (!claim.ok) return new Response(null, { status: 503, headers });
     let result = await claim.json();

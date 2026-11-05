@@ -1,3 +1,5 @@
+import { isAllowedGatewayOrigin } from "../../public/return-path.js";
+
 // One durable object owns all connection records for one installation.
 // Callers must authenticate the installation and verify provider identity first.
 const providers = new Set(["google", "microsoft"]);
@@ -18,23 +20,38 @@ export class InstallationStateLogic {
   }
 
   async register(thumbprint, jti, expiresAt, now = Date.now()) {
-    if (!validProof(thumbprint, jti, expiresAt, now)) return false;
+    return (await this.registerStatus(thumbprint, jti, expiresAt, now)) === "ok";
+  }
+
+  async registerStatus(thumbprint, jti, expiresAt, now = Date.now()) {
+    if (!validProof(thumbprint, jti, expiresAt, now)) return "invalid";
     return this.storage.transaction(async (tx) => {
       const identity = await tx.get("identity");
-      if (identity && identity.thumbprint !== thumbprint) return false;
-      if (!await consumeProofInTransaction(tx, jti, expiresAt, now)) return false;
+      if (identity && identity.thumbprint !== thumbprint) return "invalid";
+      if (!await consumeProofInTransaction(tx, jti, expiresAt, now)) return "invalid";
+      if (identity?.revoked) return "suspended";
       if (!identity) await tx.put("identity", { thumbprint, revoked: false });
-      return !identity?.revoked;
+      return "ok";
     });
   }
 
   async authorize(thumbprint, jti, expiresAt, now = Date.now()) {
-    if (!validProof(thumbprint, jti, expiresAt, now)) return false;
+    return (await this.authorizeStatus(thumbprint, jti, expiresAt, now)) === "ok";
+  }
+
+  async authorizeStatus(thumbprint, jti, expiresAt, now = Date.now()) {
+    if (!validProof(thumbprint, jti, expiresAt, now)) return "invalid";
     return this.storage.transaction(async (tx) => {
       const identity = await tx.get("identity");
-      return Boolean(identity && !identity.revoked && identity.thumbprint === thumbprint
-        && await consumeProofInTransaction(tx, jti, expiresAt, now));
+      if (!identity || identity.thumbprint !== thumbprint || !await consumeProofInTransaction(tx, jti, expiresAt, now)) return "invalid";
+      return identity.revoked ? "suspended" : "ok";
     });
+  }
+
+  async isSuspendedForThumbprint(thumbprint) {
+    if (!isId(thumbprint)) return false;
+    const identity = await this.storage.get("identity");
+    return Boolean(identity?.revoked && identity.thumbprint === thumbprint);
   }
 
   // Both keys prove possession over the same request body. The receipt makes
@@ -71,6 +88,20 @@ export class InstallationStateLogic {
     });
   }
 
+  // Monotonic operator action: retain the identity and connection history as a
+  // tombstone. Retrying a lost response must not re-enable or alter it.
+  async operatorSuspend(operationId, reason, operatorId, now = Date.now()) {
+    if (!isId(operationId) || !/^[a-z0-9_-]{1,64}$/.test(reason ?? "")
+      || !/^[a-zA-Z0-9_.-]{1,64}$/.test(operatorId ?? "")) return "invalid";
+    return this.storage.transaction(async (tx) => {
+      const identity = await tx.get("identity");
+      if (!identity) return "not_found";
+      if (identity.revoked) return "already_suspended";
+      await tx.put("identity", { ...identity, revoked: true, suspension: { operationId, reason, operatorId, at: now } });
+      return "suspended";
+    });
+  }
+
   async consumeProof(jti, expiresAt, now = Date.now()) {
     if (typeof jti !== "string" || !safeId.test(jti) || !Number.isSafeInteger(expiresAt)
       || expiresAt <= now || expiresAt > now + 120_000) return false;
@@ -89,6 +120,39 @@ export class InstallationStateLogic {
       if (live >= 4096 || await tx.get(`dpop:${fingerprint}`)) return false;
       await tx.put(`dpop:${fingerprint}`, now + 600_000);
       return true;
+    });
+  }
+
+  // Nonces are bound to this installation object and a mailbox key. Reuse a
+  // live nonce for concurrent calls; each signed proof is still single-use.
+  async authenticateMail(thumbprint, jti, expiresAt, jkt, nonce, fingerprint, now = Date.now()) {
+    if (!validProof(thumbprint, jti, expiresAt, now) || !isId(jkt) || !isId(fingerprint)) return { status: "invalid" };
+    return this.storage.transaction(async (tx) => {
+      const identity = await tx.get("identity");
+      if (!identity || identity.thumbprint !== thumbprint
+        || !await consumeProofInTransaction(tx, jti, expiresAt, now)) return { status: "invalid" };
+      if (identity.revoked) return { status: "suspended" };
+      const nonces = await tx.list({ prefix: "mail-nonce:" });
+      let live = 0;
+      for (const [key, record] of nonces) {
+        if (record.expiresAt <= now) await tx.delete(key); else live++;
+      }
+      const key = `mail-nonce:${jkt}`;
+      let current = await tx.get(key);
+      if (!current || current.expiresAt <= now) {
+        if (live >= 256) return { status: "unavailable" };
+        current = { value: randomId(), expiresAt: now + 300_000 };
+        await tx.put(key, current);
+      }
+      if (nonce !== current.value) return { status: "challenge", nonce: current.value };
+      const proofs = await tx.list({ prefix: "dpop:" });
+      let proofCount = 0;
+      for (const [proofKey, expiry] of proofs) {
+        if (expiry <= now) await tx.delete(proofKey); else proofCount++;
+      }
+      if (proofCount >= 4096 || await tx.get(`dpop:${fingerprint}`)) return { status: "invalid" };
+      await tx.put(`dpop:${fingerprint}`, now + 600_000);
+      return { status: "ok" };
     });
   }
 
@@ -405,6 +469,9 @@ export class InstallationStateLogic {
       for (const [key, expiry] of await tx.list({ prefix: "dpop:" })) {
         if (expiry <= now) await tx.delete(key);
       }
+      for (const [key, record] of await tx.list({ prefix: "mail-nonce:" })) {
+        if (record.expiresAt <= now) await tx.delete(key);
+      }
       for (const [key, record] of await tx.list({ prefix: "disconnect:" })) {
         if (record.expiresAt <= now) await tx.delete(key);
       }
@@ -718,10 +785,5 @@ function randomId() {
 }
 
 function validOrigin(value) {
-  try {
-    if (typeof value !== "string" || value.length > 2048) return false;
-    const url = new URL(value);
-    return ["http:", "https:"].includes(url.protocol) && url.origin === value
-      && !url.username && !url.password;
-  } catch { return false; }
+  return isAllowedGatewayOrigin(value);
 }

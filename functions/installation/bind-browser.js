@@ -1,3 +1,4 @@
+import { suspendedInstallation } from "../_shared/mail-nonce.js";
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
 import { verifyInstallationProof } from "../_shared/installation-proof.js";
 
@@ -27,6 +28,7 @@ export async function onRequestPost({ request, env }) {
       body: JSON.stringify({ thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt,
         flowId: body.flowId, nonce: body.nonce }),
     });
+    if (response.status === 423) return suspendedInstallation();
     if (response.status === 403) return rejectInvalidProof(env, ip, headers, 403);
     if ([204, 409].includes(response.status)) return new Response(null, { status: response.status, headers });
     return new Response("temporarily unavailable", { status: 503, headers });

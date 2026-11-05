@@ -154,6 +154,20 @@ function env() {
     } } };
 }
 
+test("signed flow creation rejects public HTTP before creating a flow", async () => {
+  const configuration = env();
+  const key = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  assert.equal((await onRequestPost({ request: await request(key), env: configuration })).status, 204);
+  const target = `${origin}/installation/flow`;
+  const body = { id, provider: "google", purpose: "login", state: enc(Buffer.alloc(32, 1)),
+    challenge: enc(Buffer.alloc(32, 2)), nonce: enc(Buffer.alloc(32, 3)), gatewayOrigin: "http://public.example" };
+  assert.equal((await startFlow({ request: await request(key, JSON.stringify(body), target), env: configuration })).status, 400);
+  body.gatewayOrigin = "http://192.168.1.20:20229";
+  const allowed = await startFlow({ request: await request(key, JSON.stringify(body), target), env: configuration });
+  assert.equal(allowed.status, 200);
+  assert.match((await allowed.json()).flowId, /^[A-Za-z0-9_-]{43}$/);
+});
+
 for (const provider of ["google", "microsoft"]) test(`${provider} mail exchange requires both keys, retrieves a durable provisional result, and acknowledges once`, async () => {
   const configuration = env();
   const installation = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);

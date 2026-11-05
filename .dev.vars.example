@@ -21,3 +21,9 @@ REFRESH_TOKEN_KEYS=
 REFRESH_TOKEN_ACTIVE_KID=
 # Separate 32-byte base64 key used to derive stable per-installation mailbox pseudonyms.
 MAIL_ACCOUNT_PSEUDONYM_KEY=
+
+# Optional CLI-only suspension control. Use a separate random 32-byte base64url
+# secret and non-secret credential identifier for each deployment environment.
+# The control is disabled unless both values are configured.
+OPERATOR_SUSPEND_SECRET=
+OPERATOR_SUSPEND_CREDENTIAL_ID=

@@ -30,6 +30,7 @@ config.vars = {
   MAIL_ACCOUNT_PSEUDONYM_KEY: Buffer.alloc(32, 6).toString('base64'),
   GOOGLE_CLIENT_ID: 'local-client', GOOGLE_CLIENT_SECRET: 'local-secret',
   MICROSOFT_CLIENT_ID: 'local-ms-client', MICROSOFT_CLIENT_SECRET: 'local-ms-secret',
+  OPERATOR_SUSPEND_SECRET: 'o'.repeat(43), OPERATOR_SUSPEND_CREDENTIAL_ID: 'local-test',
 };
 const configPath = join(directory, 'wrangler.json');
 await writeFile(configPath, JSON.stringify(config));
@@ -41,7 +42,7 @@ try {
   worker = await startWorker();
   const id = random(), key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
   let lastDpop;
-  async function signed(path, body, dpopKey, reusedDpop) {
+  async function signed(path, body, dpopKey, reusedDpop, nonce, rawChallenge = false) {
     const target = `${origin}${path}`, bytes = JSON.stringify(body), pub = await crypto.subtle.exportKey('jwk', key.publicKey);
     const header = enc(JSON.stringify({ typ: 'kautuka-installation+jwt', alg: 'ES256', jwk: { kty: 'EC', crv: 'P-256', x: pub.x, y: pub.y } }));
     const now = Math.floor(Date.now() / 1000);
@@ -53,12 +54,17 @@ try {
     if (dpopKey) {
       const pub = await crypto.subtle.exportKey('jwk', dpopKey.publicKey);
       const h = enc(JSON.stringify({ typ: 'dpop+jwt', alg: 'ES256', jwk: { kty: 'EC', crv: 'P-256', x: pub.x, y: pub.y } }));
-      const c = enc(JSON.stringify({ htm: 'POST', htu: target, iat: now, jti: random() }));
+      const c = enc(JSON.stringify({ htm: 'POST', htu: target, iat: now, jti: random(), ...(nonce ? { nonce } : {}) }));
       const signature = enc(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, dpopKey.privateKey, new TextEncoder().encode(`${h}.${c}`)));
       headers.DPoP = reusedDpop ?? `${h}.${c}.${signature}`;
       lastDpop = headers.DPoP;
     }
-    return worker.fetch(target, { method: 'POST', headers, body: bytes });
+    const response = await worker.fetch(target, { method: 'POST', headers, body: bytes });
+    if (dpopKey && !reusedDpop && !nonce && !rawChallenge && response.status === 400 && response.headers.has('dpop-nonce')) {
+      assert.deepEqual(await response.json(), { error: 'use_dpop_nonce' });
+      return signed(path, body, dpopKey, undefined, response.headers.get('dpop-nonce'));
+    }
+    return response;
   }
   async function browser(path, body, cookie) {
     return worker.fetch(`${origin}${path}`, { method: 'POST', headers: { origin, 'content-type': 'application/json',
@@ -88,6 +94,33 @@ try {
   }
   const partial = await prepare('local-insufficient');
   const partialPayload = { id, flowId: partial.flowId, verifier: partial.verifier };
+  const beforeChallenge = (await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).exchanges;
+  const challenge = await signed('/installation/mail-exchange', partialPayload, partial.dpop, undefined, undefined, true);
+  assert.equal(challenge.status, 400);
+  assert.deepEqual(await challenge.json(), { error: 'use_dpop_nonce' });
+  assert.match(challenge.headers.get('dpop-nonce'), /^[A-Za-z0-9_-]{43}$/);
+  assert.equal((await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).exchanges, beforeChallenge,
+    'a nonce challenge cannot invoke the provider');
+  const wrongNonce = await signed('/installation/mail-exchange', partialPayload, partial.dpop, undefined, random());
+  assert.equal(wrongNonce.status, 400, 'a signed proof with a wrong nonce is challenged');
+  assert.deepEqual(await wrongNonce.json(), { error: 'use_dpop_nonce' });
+  assert.equal((await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).exchanges, beforeChallenge,
+    'a wrong nonce cannot invoke the provider');
+  const commonChallenge = { id, provider: 'google', connectionId: partial.connectionId, flowId: partial.flowId, generation: 1 };
+  for (const [path, payload] of [
+    ['/installation/mail-ack', partialPayload],
+    ['/installation/mail-status', commonChallenge],
+    ['/installation/mail-cancel', { id, flowId: partial.flowId }],
+    ['/installation/mail-disconnect', commonChallenge],
+    ['/installation/mail-refresh', { ...commonChallenge, operationId: random(), refreshToken: 'kmf1.' + 'x'.repeat(40) }],
+    ['/installation/mail-refresh-ack', { ...commonChallenge, operationId: random() }],
+  ]) {
+    const rejected = await signed(path, payload, partial.dpop, undefined, undefined, true);
+    assert.equal(rejected.status, 400, `${path} requires a nonce`);
+    assert.deepEqual(await rejected.json(), { error: 'use_dpop_nonce' });
+  }
+  assert.equal((await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).exchanges, beforeChallenge,
+    'nonce challenges cannot mutate the pending exchange');
   const rejected = await signed('/installation/mail-exchange', partialPayload, partial.dpop);
   assert.equal(rejected.status, 403, 'partial grant is not admitted');
   assert.equal(rejected.headers.get('kautuka-mail-error'), 'insufficient_scope');
@@ -201,6 +234,49 @@ try {
   assert.equal((await worker.fetch(`${origin}/__test_refresh_release`, { method: 'POST' })).status, 204);
   assert.equal((await pendingRefresh).status, 409, 'partial-scope failure cannot revive a disconnected connection');
   assert.deepEqual(await (await signed('/installation/mail-status', racedCommon, racedFlow.dpop)).json(), { active: false });
+  const suspendedFlow = flows[admitted[3]], suspendedCredential = await exchanges[admitted[3]].json();
+  assert.equal((await signed('/installation/mail-ack', { id, flowId: suspendedFlow.flowId, verifier: suspendedFlow.verifier }, suspendedFlow.dpop)).status, 204);
+  const suspendedCommon = { id, provider: 'google', connectionId: suspendedFlow.connectionId, flowId: suspendedFlow.flowId, generation: suspendedCredential.generation };
+  const pendingFlow = await prepare('local-suspended-exchange');
+  const pendingExchange = signed('/installation/mail-exchange', { id, flowId: pendingFlow.flowId, verifier: pendingFlow.verifier }, pendingFlow.dpop);
+  const exchangeDeadline = Date.now() + 10000;
+  while (!(await (await worker.fetch(`${origin}/__test_exchange_started`)).json()).exchangeStarted) {
+    assert.ok(Date.now() < exchangeDeadline, 'provider exchange was reached');
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.equal((await worker.fetch(`${origin}/__test_refresh_rearm`, { method: 'POST' })).status, 204);
+  pendingRefresh = signed('/installation/mail-refresh', { ...suspendedCommon, operationId: random(), refreshToken: suspendedCredential.refreshToken }, suspendedFlow.dpop);
+  await waitForRefresh();
+  const suspendBody = JSON.stringify({ id, operationId: random(), reason: 'test_compromise' });
+  const suspend = () => worker.fetch(`${origin}/operator/installations/suspend`, { method: 'POST',
+    headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '127.0.0.1', authorization: `Bearer ${'o'.repeat(43)}` }, body: suspendBody });
+  const unauthorizedSuspend = await worker.fetch(`${origin}/operator/installations/suspend`, { method: 'POST',
+    headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '127.0.0.1', authorization: `Bearer ${'x'.repeat(43)}` }, body: suspendBody });
+  assert.equal(unauthorizedSuspend.status, 403);
+  const browserSuspend = await worker.fetch(`${origin}/operator/installations/suspend`, { method: 'POST',
+    headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '127.0.0.1', origin: 'https://attacker.example', authorization: `Bearer ${'o'.repeat(43)}` }, body: suspendBody });
+  assert.equal(browserSuspend.status, 403);
+  assert.equal((await (await suspend()).json()).status, 'suspended');
+  assert.equal((await (await suspend()).json()).status, 'already_suspended');
+  assert.equal((await worker.fetch(`${origin}/__test_exchange_release`, { method: 'POST' })).status, 204);
+  assert.equal((await worker.fetch(`${origin}/__test_refresh_release`, { method: 'POST' })).status, 204);
+  const lateExchange = await pendingExchange;
+  const lateRefresh = await pendingRefresh;
+  assert.equal(lateExchange.status, 409, 'suspension prevents an in-flight exchange result from being delivered');
+  assert.equal(lateRefresh.status, 503, 'suspension prevents an in-flight refresh result from being delivered');
+  for (const result of [lateExchange, lateRefresh]) assert.doesNotMatch(await result.text(), /local-(?:access|refresh|next-refresh)/);
+  const exchangeRetry = await signed('/installation/mail-exchange', { id, flowId: pendingFlow.flowId, verifier: pendingFlow.verifier }, pendingFlow.dpop);
+  assert.equal(exchangeRetry.status, 403);
+  assert.equal(exchangeRetry.headers.get('kautuka-installation-error'), 'installation_suspended');
+  const suspendedRegistration = await signed('/installation/register', { id });
+  assert.equal(suspendedRegistration.status, 403, 'suspension prevents re-registration');
+  assert.equal(suspendedRegistration.headers.get('kautuka-installation-error'), 'installation_suspended');
+  const suspendedStatus = await signed('/installation/mail-status', suspendedCommon, suspendedFlow.dpop);
+  assert.equal(suspendedStatus.status, 403);
+  assert.equal(suspendedStatus.headers.get('kautuka-installation-error'), 'installation_suspended');
+  const suspendedFlowStart = await signed('/installation/flow', { id, provider: 'google', purpose: 'login', state: random(), challenge: random(), nonce: random(), gatewayOrigin: 'http://localhost:20229' });
+  assert.equal(suspendedFlowStart.status, 403);
+  assert.equal(suspendedFlowStart.headers.get('kautuka-installation-error'), 'installation_suspended');
   console.log('Public handlers with real local Durable Objects admitted five of six mailboxes and rejected refresh after disconnect.');
   async function waitForRefresh() {
     const deadline = Date.now() + 10000;

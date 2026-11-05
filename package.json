@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/authorize.test.mjs test/return-path.test.mjs test/login/exchange.test.mjs test/google-mail/token.test.mjs test/microsoft-mail/token.test.mjs test/security.test.mjs test/start-ui.test.mjs test/installation-proof.test.mjs test/installation-state.test.mjs test/installation-register.test.mjs test/mail-identity.test.mjs test/mail-scopes.test.mjs",
+    "test": "node --test test/authorize.test.mjs test/return-path.test.mjs test/login/exchange.test.mjs test/google-mail/token.test.mjs test/microsoft-mail/token.test.mjs test/security.test.mjs test/start-ui.test.mjs test/handoff-ui.test.mjs test/operator-cli.test.mjs test/operator-suspend.test.mjs test/installation-proof.test.mjs test/installation-state.test.mjs test/installation-register.test.mjs test/mail-identity.test.mjs test/mail-scopes.test.mjs",
     "test:runtime": "node test/durable/live-runtime.mjs",
     "test:public-races": "npm run build && node test/durable/public-races.mjs",
     "test:router": "npm run build && node --test test/retired-router.test.mjs",
@@ -13,7 +13,7 @@
     "setup": "npm ci"
   },
   "devDependencies": {
-    "wrangler": "^4.42.0"
+    "wrangler": "^4.156.1"
   },
   "engines": {
     "node": ">=26 <27"

@@ -1,4 +1,5 @@
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
+import { suspendedInstallation } from "../_shared/mail-nonce.js";
 import { verifyInstallationProof } from "../_shared/installation-proof.js";
 
 const idPattern = /^[A-Za-z0-9_-]{43}$/;
@@ -27,6 +28,7 @@ export async function onRequestPost({ request, env }) {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ oldProof, newProof, operationId: body.operationId }),
     });
+    if (response.status === 423) return suspendedInstallation();
     return new Response(null, { status: response.ok ? 204 : response.status === 409 ? 409 : 503, headers });
   } catch { return new Response("temporarily unavailable", { status: 503, headers }); }
 }

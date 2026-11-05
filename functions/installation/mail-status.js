@@ -1,3 +1,4 @@
+import { mailNonceChallenge } from "../_shared/mail-nonce.js";
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
 import { verifyInstallationProof, dpopReplayFingerprint } from "../_shared/installation-proof.js";
 import { verifyDpop } from "../_shared/mail-token.js";
@@ -25,7 +26,9 @@ export async function onRequestPost({ request, env }) {
   try {
     const object = env.INSTALLATION_STATE.get(env.INSTALLATION_STATE.idFromName(`installation:v1:${body.id}`));
     const response = await object.fetch("https://installation.internal/mail-status", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...body, dpopJkt: dpop.jkt, dpopFingerprint: await dpopReplayFingerprint(dpop), thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt }) });
+      body: JSON.stringify({ ...body, dpopJkt: dpop.jkt, dpopFingerprint: await dpopReplayFingerprint(dpop), dpopNonce: dpop.nonce, thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt }) });
+    const nonceChallenge = mailNonceChallenge(response);
+    if (nonceChallenge) return nonceChallenge;
     if (response.status === 403) return rejectInvalidProof(env, ip, headers, 403);
     if (!response.ok) return new Response("temporarily unavailable", { status: 503, headers });
     const result = await response.json();

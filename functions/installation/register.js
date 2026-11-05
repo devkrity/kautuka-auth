@@ -1,5 +1,6 @@
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
 import { verifyInstallationProof } from "../_shared/installation-proof.js";
+import { suspendedInstallation } from "../_shared/mail-nonce.js";
 
 const idPattern = /^[A-Za-z0-9_-]{43}$/;
 
@@ -27,6 +28,7 @@ export async function onRequestPost({ request, env }) {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt }),
     });
+    if (response.status === 423) return suspendedInstallation();
     if (response.status === 409) return rejectInvalidProof(env, ip, noStore, 409);
     return new Response(null, { status: response.ok ? 204 : 503, headers: noStore });
   } catch {

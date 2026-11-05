@@ -1,3 +1,4 @@
+import { mailNonceChallenge } from "../_shared/mail-nonce.js";
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
 import { verifyInstallationProof, readBoundedBody, dpopReplayFingerprint } from "../_shared/installation-proof.js";
 import { verifyDpop } from "../_shared/mail-token.js";
@@ -38,7 +39,9 @@ export async function onRequestPost({ request, env }) {
   try {
     const allowedProviders = Object.entries(providers).filter(([, config]) => env[config.client] && env[config.secret]).map(([name]) => name);
     const response = await invoke("claim-mail-exchange", { ...binding, allowedProviders, dpopFingerprint: await dpopReplayFingerprint(dpop),
-      thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt });
+      dpopNonce: dpop.nonce, thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt });
+    const nonceChallenge = mailNonceChallenge(response);
+    if (nonceChallenge) return nonceChallenge;
     if (response.status === 202) return new Response(null, { status: 202, headers });
     if (response.status === 429) {
       const denied = await response.json();
