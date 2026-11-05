@@ -2,32 +2,185 @@
   "name": "kautuka-auth",
   "compatibility_date": "2026-10-09",
   "main": "./worker-entry.js",
-  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
-  "vars": { "BROKER_ORIGIN": "https://auth.kautuka.io" },
-  "ratelimits": [
-    { "name": "INSTALLATION_REGISTRATION_LIMIT", "namespace_id": "97021361", "simple": { "limit": 30, "period": 60 } },
-    { "name": "INSTALLATION_FLOW_LIMIT", "namespace_id": "97021362", "simple": { "limit": 60, "period": 60 } },
-    { "name": "INSTALLATION_CONTROL_LIMIT", "namespace_id": "97021367", "simple": { "limit": 120, "period": 60 } },
-    { "name": "INVALID_REQUEST_LIMIT", "namespace_id": "97021368", "simple": { "limit": 30, "period": 60 } },
-    { "name": "HANDOFF_LIMIT", "namespace_id": "97021363", "simple": { "limit": 120, "period": 60 } },
-    { "name": "HANDOFF_POLL_LIMIT", "namespace_id": "97021364", "simple": { "limit": 180, "period": 60 } },
-    { "name": "INSTALLATION_POLL_LIMIT", "namespace_id": "97021365", "simple": { "limit": 180, "period": 60 } },
-    { "name": "MAIL_REFRESH_LIMIT", "namespace_id": "97021366", "simple": { "limit": 120, "period": 60 } }
-  ],
-  "durable_objects": { "bindings": [{ "name": "DPOP_STATE", "class_name": "DpopState" }, { "name": "INSTALLATION_STATE", "class_name": "InstallationState" }] },
-  "previews": {
-    "vars": { "BROKER_ORIGIN": "https://broker-controls-kautuka-auth.aged-star-69fb.workers.dev" },
-    "ratelimits": [
-      { "name": "INSTALLATION_REGISTRATION_LIMIT", "namespace_id": "97021461", "simple": { "limit": 30, "period": 60 } },
-      { "name": "INSTALLATION_FLOW_LIMIT", "namespace_id": "97021462", "simple": { "limit": 60, "period": 60 } },
-      { "name": "INSTALLATION_CONTROL_LIMIT", "namespace_id": "97021467", "simple": { "limit": 120, "period": 60 } },
-      { "name": "INVALID_REQUEST_LIMIT", "namespace_id": "97021468", "simple": { "limit": 30, "period": 60 } },
-      { "name": "HANDOFF_LIMIT", "namespace_id": "97021463", "simple": { "limit": 120, "period": 60 } },
-      { "name": "HANDOFF_POLL_LIMIT", "namespace_id": "97021464", "simple": { "limit": 180, "period": 60 } },
-      { "name": "INSTALLATION_POLL_LIMIT", "namespace_id": "97021465", "simple": { "limit": 180, "period": 60 } },
-      { "name": "MAIL_REFRESH_LIMIT", "namespace_id": "97021466", "simple": { "limit": 120, "period": 60 } }
-    ],
-    "durable_objects": { "bindings": [{ "name": "DPOP_STATE", "class_name": "DpopState" }, { "name": "INSTALLATION_STATE", "class_name": "InstallationState" }] }
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DpopState"] }, { "tag": "v2", "new_sqlite_classes": ["InstallationState"] }]
+  "vars": {
+    "BROKER_ORIGIN": "https://auth.kautuka.io"
+  },
+  "ratelimits": [
+    {
+      "name": "INSTALLATION_REGISTRATION_LIMIT",
+      "namespace_id": "97021361",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    },
+    {
+      "name": "INSTALLATION_FLOW_LIMIT",
+      "namespace_id": "97021362",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    },
+    {
+      "name": "INSTALLATION_CONTROL_LIMIT",
+      "namespace_id": "97021367",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    },
+    {
+      "name": "INVALID_REQUEST_LIMIT",
+      "namespace_id": "97021368",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    },
+    {
+      "name": "HANDOFF_LIMIT",
+      "namespace_id": "97021363",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    },
+    {
+      "name": "HANDOFF_POLL_LIMIT",
+      "namespace_id": "97021364",
+      "simple": {
+        "limit": 180,
+        "period": 60
+      }
+    },
+    {
+      "name": "INSTALLATION_POLL_LIMIT",
+      "namespace_id": "97021365",
+      "simple": {
+        "limit": 180,
+        "period": 60
+      }
+    },
+    {
+      "name": "MAIL_REFRESH_LIMIT",
+      "namespace_id": "97021366",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "INSTALLATION_STATE",
+        "class_name": "InstallationState"
+      }
+    ]
+  },
+  "previews": {
+    "vars": {
+      "BROKER_ORIGIN": "https://broker-controls-kautuka-auth.aged-star-69fb.workers.dev"
+    },
+    "ratelimits": [
+      {
+        "name": "INSTALLATION_REGISTRATION_LIMIT",
+        "namespace_id": "97021461",
+        "simple": {
+          "limit": 30,
+          "period": 60
+        }
+      },
+      {
+        "name": "INSTALLATION_FLOW_LIMIT",
+        "namespace_id": "97021462",
+        "simple": {
+          "limit": 60,
+          "period": 60
+        }
+      },
+      {
+        "name": "INSTALLATION_CONTROL_LIMIT",
+        "namespace_id": "97021467",
+        "simple": {
+          "limit": 120,
+          "period": 60
+        }
+      },
+      {
+        "name": "INVALID_REQUEST_LIMIT",
+        "namespace_id": "97021468",
+        "simple": {
+          "limit": 30,
+          "period": 60
+        }
+      },
+      {
+        "name": "HANDOFF_LIMIT",
+        "namespace_id": "97021463",
+        "simple": {
+          "limit": 120,
+          "period": 60
+        }
+      },
+      {
+        "name": "HANDOFF_POLL_LIMIT",
+        "namespace_id": "97021464",
+        "simple": {
+          "limit": 180,
+          "period": 60
+        }
+      },
+      {
+        "name": "INSTALLATION_POLL_LIMIT",
+        "namespace_id": "97021465",
+        "simple": {
+          "limit": 180,
+          "period": 60
+        }
+      },
+      {
+        "name": "MAIL_REFRESH_LIMIT",
+        "namespace_id": "97021466",
+        "simple": {
+          "limit": 120,
+          "period": 60
+        }
+      }
+    ],
+    "durable_objects": {
+      "bindings": [
+        {
+          "name": "INSTALLATION_STATE",
+          "class_name": "InstallationState"
+        }
+      ]
+    }
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "DpopState"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "InstallationState"
+      ]
+    },
+    {
+      "tag": "v3",
+      "deleted_classes": [
+        "DpopState"
+      ]
+    }
+  ]
 }

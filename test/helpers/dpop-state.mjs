@@ -1,5 +1,3 @@
-import { DpopStateLogic } from "../../dpop-state/src/state.js";
-
 export class MemoryObjectStorage {
   values = new Map();
   queue = Promise.resolve();
@@ -16,34 +14,3 @@ export class MemoryObjectStorage {
     return result;
   }
 }
-
-export function createStateNamespace() {
-  const instances = new Map();
-  return {
-    idFromName(name) { return name; },
-    get(id) {
-      if (!instances.has(id)) {
-        const storage = new MemoryObjectStorage();
-        const object = new DpopStateLogic({ storage });
-        instances.set(id, { storage, object });
-      }
-      const { object } = instances.get(id);
-      return {
-        async fetch(_url, init) {
-          return object.fetch(new Request("https://state.internal", init));
-        },
-      };
-    },
-    instances,
-  };
-}
-
-export async function stateRequest(namespace, provider, jkt, action, fields = {}) {
-  const response = await namespace.get(namespace.idFromName(`${provider}:${jkt}`)).fetch("https://state.internal", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action, provider, jkt, ...fields }),
-  });
-  return { status: response.status, body: await response.json() };
-}
-

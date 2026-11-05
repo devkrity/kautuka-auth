@@ -1,6 +1,5 @@
 // Test-only entrypoint. It never forwards fetches to the internet.
 import authWorker from '../../dist/worker/index.js';
-export { DpopState } from '../../dpop-state/src/index.js';
 export { InstallationState } from '../../installation-state/src/index.js';
 
 let account = 0;
