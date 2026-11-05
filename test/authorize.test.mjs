@@ -82,7 +82,9 @@ test("authorize rejects a ticket with a different audience or an altered signatu
   });
   const { ticket } = await ticketResponse.json();
   const env = { AUTH_TICKET_HMAC_KEY: secret, GOOGLE_CLIENT_ID: "client" };
-  for (const candidate of [ticket.slice(0, -1) + "x", "bad.ticket"]) {
+  const [body, signature] = ticket.split(".");
+  const altered = `${body}.${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
+  for (const candidate of [altered, "bad.ticket"]) {
     const response = await authorize({ env, request: new Request(`${authOrigin}/authorize?ticket=${encodeURIComponent(candidate)}`) });
     assert.equal(response.status, 400);
   }

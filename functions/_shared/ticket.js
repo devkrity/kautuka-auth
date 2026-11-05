@@ -86,7 +86,9 @@ function decodeBase64Url(value) {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("Invalid base64url");
   const padded = value.replaceAll("-", "+").replaceAll("_", "/");
   const binary = atob(padded + "=".repeat((4 - padded.length % 4) % 4));
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  if (encodeBase64Url(bytes) !== value) throw new Error("Noncanonical base64url");
+  return bytes;
 }
 
 

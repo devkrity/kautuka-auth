@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect to Kautuka</title>
+  <style>
+    body{font:15px/1.5 system-ui,sans-serif;background:#fbfbfa;color:#102448;margin:0;padding:32px 20px}
+    main{max-width:460px;margin:5vh auto;background:white;border:1px solid #d8dce3;border-radius:8px;padding:28px}
+    h1{font-size:24px;margin:0 0 12px} p{overflow-wrap:anywhere} button{padding:12px 18px;background:#1858e8;color:white;border:0;border-radius:4px;font:inherit;cursor:pointer} button:disabled{opacity:.5;cursor:not-allowed}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Connect to Kautuka</h1>
+    <p id="status">Checking your Kautuka tab…</p>
+    <p id="details" hidden></p>
+    <p id="notice" hidden></p>
+    <button id="continue" type="button" disabled>Continue</button>
+  </main>
+  <script type="module">
+    const status = document.querySelector('#status');
+    const details = document.querySelector('#details');
+    const notice = document.querySelector('#notice');
+    const button = document.querySelector('#continue');
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    const input = { id: fragment.get('id'), flowId: fragment.get('flow') };
+    history.replaceState(null, '', location.pathname);
+    const valid = /^[A-Za-z0-9_-]{43}$/;
+
+    async function post(path, body) {
+      const response = await fetch(path, { method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
+      if (!response.ok) {
+        const error = new Error('Request failed');
+        error.status = response.status;
+        error.retryAfter = Number(response.headers.get('retry-after')) || 0;
+        throw error;
+      }
+      return response.json();
+    }
+    async function begin() {
+      try {
+        if (!window.opener || !valid.test(input.id ?? '') || !valid.test(input.flowId ?? '')) throw new Error('Invalid opener');
+        const candidate = await post('/handoff/candidate', input);
+        const gateway = new URL(candidate.gatewayOrigin);
+        if (gateway.origin !== candidate.gatewayOrigin || !['http:', 'https:'].includes(gateway.protocol)
+          || !valid.test(candidate.nonce ?? '')) throw new Error('Invalid candidate');
+        window.opener.postMessage({ type: 'kautuka-broker-candidate', flowId: input.flowId, nonce: candidate.nonce }, gateway.origin);
+        let ready = false;
+        const deadline = Date.now() + 45000;
+        while (Date.now() < deadline) {
+          let result;
+          try { result = await post('/handoff/status', input); }
+          catch (error) {
+            if (error.status && error.status !== 429 && error.status < 500) throw error;
+            const delay = Math.max(2000, Math.min((error.retryAfter || 2) * 1000, 60000));
+            if (Date.now() + delay >= deadline) throw error;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
+          }
+          if (result.status === 'ready') { ready = true; break; }
+          if (result.status !== 'waiting') throw new Error('Binding rejected');
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+        if (!ready) throw new Error('Binding expired');
+        const provider = candidate.provider === 'google' ? 'Google' : candidate.provider === 'microsoft' ? 'Microsoft' : null;
+        if (!provider || !['login', 'link', 'mail'].includes(candidate.purpose)) throw new Error('Invalid purpose');
+        const purpose = candidate.purpose === 'mail' ? 'Connect email' : candidate.purpose === 'link' ? 'Link account to Kautuka' : 'Sign in to Kautuka';
+        details.textContent = `${provider} · ${purpose} · ${gateway.origin}`;
+        details.hidden = false;
+        if (candidate.purpose === 'mail') {
+          notice.textContent = 'You are connecting your email account to this Kautuka installation. Its operator can use the permissions shown by your provider to access your email. Continue only if you trust the operator.';
+          notice.hidden = false;
+        }
+        status.textContent = 'Review this request before continuing.';
+        button.disabled = false;
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          try {
+            const result = await post('/handoff/authorize', input);
+            const target = new URL(result.authorizeUrl);
+            if (!['https://accounts.google.com', 'https://login.microsoftonline.com'].includes(target.origin)) throw new Error('Invalid provider');
+            location.replace(target.toString());
+          } catch { status.textContent = 'Sign-in could not start. Return to Kautuka and try again.'; }
+        });
+      } catch { status.textContent = 'This sign-in could not be verified. Return to your Kautuka tab and start again.'; }
+    }
+    await begin();
+  </script>
+</body>
+</html>

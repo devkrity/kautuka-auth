@@ -1,73 +1,53 @@
 import assert from "node:assert/strict";
-import { keyPair, signProof, thumbprint } from "../helpers/dpop.mjs";
-import { wrapRefreshToken } from "../../functions/_shared/token-state.js";
 
 const baseUrl = process.env.AUTH_TEST_BASE_URL;
-if (!baseUrl?.startsWith("https://127.0.0.1:")) throw new Error("Set AUTH_TEST_BASE_URL to the local Wrangler Worker HTTPS URL.");
+const previewOrigin = "https://broker-controls-kautuka-auth.aged-star-69fb.workers.dev";
+const isPreview = process.env.AUTH_TEST_CLOUDFLARE_PREVIEW === "1" && baseUrl === previewOrigin;
+if (!baseUrl?.startsWith("https://127.0.0.1:") && !isPreview)
+  throw new Error("Use an HTTPS loopback Worker, or explicitly select the isolated broker-controls preview.");
+const origin = new URL(baseUrl).origin;
+if (origin !== baseUrl) throw new Error("AUTH_TEST_BASE_URL must be an HTTPS origin without a path or trailing slash.");
+const encode = (value) => Buffer.from(value).toString("base64url");
+const body = JSON.stringify({ id: encode(crypto.getRandomValues(new Uint8Array(32))) });
+const target = `${origin}/installation/register`;
+const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
 
-const target = `${baseUrl}/google-mail/token`;
-const startPage = await fetch(`${baseUrl}/start/`);
-assert.equal(startPage.status, 200);
-assert.equal(startPage.headers.get("x-frame-options"), "DENY");
-assert.match(startPage.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
-assert.equal(startPage.headers.get("x-content-type-options"), "nosniff");
+async function signedRequest(key, requestTarget = target, requestBody = body) {
+  const exported = await crypto.subtle.exportKey("jwk", key.publicKey);
+  const jwk = { kty: "EC", crv: "P-256", x: exported.x, y: exported.y };
+  const now = Math.floor(Date.now() / 1000);
+  const head = encode(JSON.stringify({ typ: "kautuka-installation+jwt", alg: "ES256", jwk }));
+  const payload = encode(JSON.stringify({ aud: origin, htm: "POST", htu: requestTarget, iat: now, exp: now + 60,
+    jti: encode(crypto.getRandomValues(new Uint8Array(32))), body_hash: encode(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(requestBody))) }));
+  const signature = encode(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.privateKey, new TextEncoder().encode(`${head}.${payload}`)));
+  return { method: "POST", headers: { "content-type": "application/json", ...(isPreview ? {} : { "CF-Connecting-IP": "127.0.0.1" }),
+    "Kautuka-Installation-Proof": `${head}.${payload}.${signature}` }, body: requestBody };
+}
 
-const env = {
-  REFRESH_TOKEN_KEYS: JSON.stringify({ k1: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" }),
-  REFRESH_TOKEN_ACTIVE_KID: "k1",
-};
-const pair = await keyPair();
-const jkt = await thumbprint(pair.publicKey);
-const body = new URLSearchParams({
-  grant_type: "refresh_token",
-  scope: "https://www.googleapis.com/auth/gmail.modify",
-  refresh_token: "raw-refresh-token-is-rejected-before-upstream",
-});
-
-const initialProof = await signProof(pair, { htu: target });
-const challenge = await fetch(target, { method: "POST", headers: { DPoP: initialProof }, body });
-assert.equal(challenge.status, 400);
-const nonce = challenge.headers.get("dpop-nonce");
-assert.ok(nonce);
-
-const repeatedProof = await signProof(pair, {
-  htu: target,
-  nonce,
-  jti: "live-runtime-replay-jti-0000001",
-});
-const concurrentResponses = await Promise.all([
-  fetch(target, { method: "POST", headers: { DPoP: repeatedProof }, body }),
-  fetch(target, { method: "POST", headers: { DPoP: repeatedProof }, body }),
-]);
-const concurrentBodies = await Promise.all(concurrentResponses.map((response) => response.text()));
-assert.deepEqual(concurrentBodies.sort(), ["rejected", JSON.stringify({ error: "use_dpop_nonce" })].sort());
-
-const wrapped = await wrapRefreshToken(env, "google-mail", jkt, "local-provider-refresh");
-const revokeUrl = `${baseUrl}/google-mail/keys/${jkt}`;
-const revokeBody = new URLSearchParams({ refresh_token: wrapped });
-const revokeChallenge = await fetch(revokeUrl, {
-  method: "DELETE",
-  headers: { DPoP: await signProof(pair, { htm: "DELETE", htu: revokeUrl }) },
-  body: revokeBody,
-});
-assert.equal(revokeChallenge.status, 400);
-const revokeNonce = revokeChallenge.headers.get("dpop-nonce");
-assert.ok(revokeNonce);
-const revoked = await fetch(revokeUrl, {
-  method: "DELETE",
-  headers: { DPoP: await signProof(pair, { htm: "DELETE", htu: revokeUrl, nonce: revokeNonce }) },
-  body: revokeBody,
-});
-assert.equal(revoked.status, 204);
-
-const afterRevocation = await fetch(target, {
-  method: "POST",
-  headers: { DPoP: await signProof(pair, { htu: target }) },
-  body: new URLSearchParams({
-    grant_type: "refresh_token",
-    scope: "https://www.googleapis.com/auth/gmail.modify",
-    refresh_token: wrapped,
-  }),
-});
-assert.equal(afterRevocation.status, 403);
-console.log("Local Durable Object nonce replay and revocation checks passed.");
+const legacy = await fetch(`${origin}/google-mail/token`, { method: "POST" });
+assert.equal(legacy.status, 410);
+assert.equal(legacy.headers.get("x-frame-options"), "DENY");
+const first = await signedRequest(pair);
+const responses = await Promise.all([fetch(target, first), fetch(target, first)]);
+assert.deepEqual(responses.map((response) => response.status).sort(), [204, 409]);
+const other = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+assert.equal((await fetch(target, await signedRequest(other))).status, 409);
+assert.equal((await fetch(target, await signedRequest(pair))).status, 204);
+const replacement = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+const publicKey = await crypto.subtle.exportKey("jwk", replacement.publicKey);
+const canonical = JSON.stringify({ crv: publicKey.crv, kty: publicKey.kty, x: publicKey.x, y: publicKey.y });
+const rotationBody = JSON.stringify({ id: JSON.parse(body).id, operationId: encode(crypto.getRandomValues(new Uint8Array(32))),
+  replacementThumbprint: encode(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical))) });
+const rotationTarget = `${origin}/installation/rotate`;
+async function rotationRequest(replacementKey) {
+  const oldRequest = await signedRequest(pair, rotationTarget, rotationBody);
+  const newRequest = await signedRequest(replacementKey, rotationTarget, rotationBody);
+  oldRequest.headers["Kautuka-Replacement-Proof"] = newRequest.headers["Kautuka-Installation-Proof"];
+  return oldRequest;
+}
+assert.equal((await fetch(rotationTarget, await rotationRequest(other))).status, 400);
+assert.equal((await fetch(rotationTarget, await rotationRequest(replacement))).status, 204);
+assert.equal((await fetch(rotationTarget, await rotationRequest(replacement))).status, 204);
+assert.equal((await fetch(target, await signedRequest(pair))).status, 409);
+assert.equal((await fetch(target, await signedRequest(replacement))).status, 204);
+console.log(`${isPreview ? "Isolated Cloudflare preview" : "Local Worker"} retired-route, Durable Object replay and key-rotation checks passed.`);

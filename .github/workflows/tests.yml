@@ -27,3 +27,10 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Verify built router retires legacy endpoints
+        run: npm run test:router
+
+      - name: Exercise public mailbox races with local Durable Objects
+        timeout-minutes: 3
+        run: npm run test:public-races
