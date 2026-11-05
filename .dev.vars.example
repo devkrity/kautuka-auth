@@ -1,3 +1,7 @@
+# HTTPS origin of this local Worker, without a trailing slash. Use the same
+# origin in the Gateway and AUTH_TEST_BASE_URL when testing bound flows.
+BROKER_ORIGIN=
+
 # Local development only. Leave blank unless using disposable provider test accounts.
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
@@ -15,3 +19,5 @@ AUTH_TICKET_HMAC_KEY=
 REFRESH_TOKEN_KEYS=
 # REFRESH_TOKEN_ACTIVE_KID: key ID present in REFRESH_TOKEN_KEYS.
 REFRESH_TOKEN_ACTIVE_KID=
+# Separate 32-byte base64 key used to derive stable per-installation mailbox pseudonyms.
+MAIL_ACCOUNT_PSEUDONYM_KEY=
