@@ -95,6 +95,14 @@ try {
   const partial = await prepare('local-insufficient');
   const partialPayload = { id, flowId: partial.flowId, verifier: partial.verifier };
   const beforeChallenge = (await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).exchanges;
+  const wrongKey = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const wrongKeyChallenge = await signed('/installation/mail-exchange', partialPayload, wrongKey, undefined, undefined, true);
+  assert.equal(wrongKeyChallenge.status, 400, 'a different mailbox key must negotiate its own nonce first');
+  assert.deepEqual(await wrongKeyChallenge.json(), { error: 'use_dpop_nonce' });
+  const wrongKeyResult = await signed('/installation/mail-exchange', partialPayload, wrongKey, undefined, wrongKeyChallenge.headers.get('dpop-nonce'));
+  assert.equal(wrongKeyResult.status, 409, 'a valid nonce does not authorize the wrong mailbox key');
+  assert.equal((await (await worker.fetch(`${origin}/__test_provider_stats`)).json()).exchanges, beforeChallenge,
+    'the wrong mailbox key must not invoke the provider');
   const challenge = await signed('/installation/mail-exchange', partialPayload, partial.dpop, undefined, undefined, true);
   assert.equal(challenge.status, 400);
   assert.deepEqual(await challenge.json(), { error: 'use_dpop_nonce' });

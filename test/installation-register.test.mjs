@@ -175,12 +175,12 @@ for (const provider of ["google", "microsoft"]) test(`${provider} mail exchange 
   const publicKey = await crypto.subtle.exportKey("jwk", mailKey.publicKey);
   const jwk = { crv: "P-256", kty: "EC", x: publicKey.x, y: publicKey.y };
   const jkt = enc(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(jwk))));
-  const signedRequest = async (path, body, key = mailKey) => {
+  const signedRequest = async (path, body, key = mailKey, proofNonce) => {
     const target = `${origin}${path}`;
     const signed = await request(installation, JSON.stringify(body), target);
     const pub = await crypto.subtle.exportKey("jwk", key.publicKey);
     const head = enc(JSON.stringify({ typ: "dpop+jwt", alg: "ES256", jwk: { kty: "EC", crv: "P-256", x: pub.x, y: pub.y } }));
-    const claims = enc(JSON.stringify({ htm: "POST", htu: target, iat: Math.floor(Date.now() / 1000), jti: enc(crypto.getRandomValues(new Uint8Array(32))) }));
+    const claims = enc(JSON.stringify({ htm: "POST", htu: target, iat: Math.floor(Date.now() / 1000), jti: enc(crypto.getRandomValues(new Uint8Array(32))), ...(proofNonce ? { nonce: proofNonce } : {}) }));
     const signature = enc(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.privateKey, new TextEncoder().encode(`${head}.${claims}`)));
     const headers = new Headers(signed.headers); headers.set("DPoP", `${head}.${claims}.${signature}`);
     return new Request(signed, { headers });
@@ -212,6 +212,22 @@ for (const provider of ["google", "microsoft"]) test(`${provider} mail exchange 
   const payload = { id, flowId, verifier: oauthVerifier };
   const otherKey = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
   assert.equal((await mailExchange({ request: await signedRequest("/installation/mail-exchange", payload, otherKey), env: configuration })).status, 409);
+  // Exercise the public handler's nonce challenge before the wrong-key denial.
+  // The broader mock above models state operations directly; the public-router
+  // race test independently verifies this sequence against a real Durable Object.
+  const issuedNonce = enc(Buffer.alloc(32, 91));
+  const nonceConfiguration = { ...configuration, INSTALLATION_STATE: { idFromName: name => name, get: () => ({
+    async fetch(_target, init) {
+      const input = JSON.parse(init.body);
+      return input.dpopNonce === issuedNonce ? new Response(null, { status: 409 })
+        : new Response(null, { status: 428, headers: { "dpop-nonce": issuedNonce } });
+    },
+  }) } };
+  const nonceChallenge = await mailExchange({ request: await signedRequest("/installation/mail-exchange", payload, otherKey), env: nonceConfiguration });
+  assert.equal(nonceChallenge.status, 400);
+  assert.deepEqual(await nonceChallenge.json(), { error: "use_dpop_nonce" });
+  assert.equal(nonceChallenge.headers.get("dpop-nonce"), issuedNonce);
+  assert.equal((await mailExchange({ request: await signedRequest("/installation/mail-exchange", payload, otherKey, issuedNonce), env: nonceConfiguration })).status, 409);
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async (url, init) => {
