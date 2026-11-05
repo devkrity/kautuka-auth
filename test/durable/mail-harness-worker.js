@@ -1,6 +1,5 @@
 // Local test entrypoint only. Production uses worker-entry.js and has no test route.
 import authWorker from '../../dist/worker/index.js';
-export { DpopState } from '../../dpop-state/src/index.js';
 export { InstallationState } from '../../installation-state/src/index.js';
 
 export default {

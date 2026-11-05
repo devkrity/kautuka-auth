@@ -77,7 +77,7 @@ const credits = [
   '| --- | --- | --- | --- |',
   ...inventory.buildDependencies.map((component) => `| ${component.name.replaceAll('|', '\\|')} | ${component.version} | ${component.license} | ${component.source} |`),
   '',
-  'Cloudflare Workers APIs and the repository-local DpopState Durable Object are platform APIs and first-party source, respectively.',
+  'Cloudflare Workers APIs and the repository-local InstallationState Durable Object are platform APIs and first-party source, respectively.',
   '',
 ];
 await writeFile(path.join(output, 'CREDITS.md'), credits.join('\n'));
@@ -86,7 +86,7 @@ const notices = [
   `kautuka-auth - Third-party software notices`,
   '',
   'The deployed Worker currently has no third-party npm runtime dependencies. Its application source is licensed under Apache-2.0; see LICENSE.',
-  'Cloudflare Workers APIs and the repository-local DpopState Durable Object are platform APIs and first-party source, respectively.',
+  'Cloudflare Workers APIs and the repository-local InstallationState Durable Object are platform APIs and first-party source, respectively.',
   'Wrangler and its locked transitive packages are development/build tooling. They are recorded in the attached build-dependencies SBOM and are not bundled into the deployed Worker.',
   'The complete locked build-package list and detected license expressions are in the accompanying CREDITS.md.',
   'If a third-party runtime dependency is introduced, update the reviewed component catalog and ensure applicable notices and license texts are published with the Worker release.',
