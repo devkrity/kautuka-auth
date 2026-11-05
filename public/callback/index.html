@@ -4,10 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kautuka sign-in</title>
+  <link rel="stylesheet" href="/broker.css">
 </head>
 <body>
+  <main>
+    <div class="brand" aria-label="Kautuka account access">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="brand-thread"><stop stop-color="#E34234"/><stop offset=".5" stop-color="#E3A018"/><stop offset="1" stop-color="#E34234"/></linearGradient></defs><rect width="40" height="40" rx="11" fill="url(#brand-thread)"/><path d="M11.5 7.5h4v14l8-8h5l-8 8 8 10h-5l-6-7-2 2v5h-4z" fill="#fff"/></svg>
+      <div><div class="brand-name">Kautuka</div><div class="brand-caption">ACCOUNT ACCESS</div></div>
+    </div>
+  <h1>Returning to Kautuka</h1>
   <p id="status">Returning to Kautuka…</p>
   <button id="retry" type="button" hidden>Retry</button>
+  </main>
   <script type="module">
     const status = document.querySelector('#status');
     const retry = document.querySelector('#retry');

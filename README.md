@@ -77,6 +77,24 @@ Provider approval may be required for the permissions your OAuth apps request. I
 
 Kautuka keeps a separate installation identity for each broker origin and exposes key rotation through its loopback-only, administrator-authorized maintenance endpoint `/api/internal/broker/rotate-installation-key`. Rotation retains that broker's installation ID, existing connections and account limits. If an installation key is irrecoverably lost, the installation must establish a new identity and reconnect its accounts; a claimed ID alone cannot recover it.
 
+Creating a new identity does not revoke a stolen identity or its provider grants. A stolen installation key by itself does not provide the separately stored mail keys and credentials, but it can be used to rotate the installation key and lock out the owner. Secure the host, disconnect affected mail connections where possible, and revoke the Kautuka app's grants in the affected Google and Microsoft account settings before reconnecting. Previously issued access tokens may remain valid until expiry or provider revocation. Avoid deleting an identity beneath active credentials.
+
+### Emergency operator suspension
+
+The operator may permanently suspend an installation using the independent `OPERATOR_SUSPEND_SECRET` Worker secret (at least 32 random bytes encoded as unpadded base64url) and the non-secret `OPERATOR_SUSPEND_CREDENTIAL_ID` setting. Configure separate credentials for preview and production and protect the secret as a credential able to suspend any installation. The endpoint is disabled when either setting is missing; it accepts CLI requests to the configured broker origin only. There is no browser UI or reinstatement endpoint.
+
+From a trusted operator machine, pipe the secret from a protected file into the helper; never put it in an argument or paste it into a log. For example, in PowerShell:
+
+```powershell
+Get-Content -Raw -LiteralPath '<protected-secret-file>' | node scripts/suspend-installation.mjs https://auth.kautuka.io <installation-id> key_compromised
+```
+
+The operation is permanent and idempotent. The broker records the installation ID, operation ID, reason, configured credential identifier, and time, but not the secret. A holder of the secret can suspend any installation; the credential identifier does not identify an individual person. Suspension prevents subsequent broker operations but does not revoke provider grants, invalidate provider tokens already issued, or retract responses already delivered. Ask the account owner to revoke provider grants separately. A new installation identity does not restore the suspended one.
+
+### DPoP nonce rollout
+
+The bound mail endpoints now require the short-lived broker nonce. The updated Gateway handles the `use_dpop_nonce` challenge and remains compatible with a broker that does not challenge it. Publish the Gateway first, then establish that the installations you intend to support have upgraded before deploying this broker version. Merely publishing the Gateway does not upgrade installed clients; older Gateways will fail their mail operations after broker enforcement begins. Explicitly choose and communicate a cutover for any clients that have not upgraded. There is no nonce-optional fallback. This nonce change does not require replacing mail credential envelopes or keys.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and pull request guidance. Sign off every commit with `git commit -s` to certify the DCO.

@@ -28,6 +28,63 @@ async function initialized(storage = new MemoryObjectStorage()) {
   assert.equal(await state.register(id(250), id(251), Date.now() + 60000), true);
   return state;
 }
+
+test("mail nonces bind the installation and mailbox key while proofs remain single-use", async () => {
+  const a = await initialized(), b = await initialized();
+  const now = Date.now();
+  assert.equal((await a.authenticateMail(id(249), id(90), now + 60_000, id(4), null, id(10), now)).status, "invalid");
+  assert.equal((await a.authenticateMail(id(250), id(251), now + 60_000, id(4), null, id(10), now)).status, "invalid");
+  let proofNumber = 100;
+  const auth = (state, key, nonce, fingerprint, time) => state.authenticateMail(id(250), id(proofNumber++), time + 60_000, key, nonce, fingerprint, time);
+  const challenge = await auth(a, id(4), null, id(11), now);
+  assert.equal(challenge.status, "challenge");
+  assert.match(challenge.nonce, /^[A-Za-z0-9_-]{43}$/);
+  const otherKey = await auth(a, id(5), challenge.nonce, id(12), now);
+  const otherInstall = await auth(b, id(4), challenge.nonce, id(13), now);
+  assert.equal(otherKey.status, "challenge");
+  assert.equal(otherInstall.status, "challenge");
+  assert.notEqual(otherKey.nonce, challenge.nonce);
+  assert.notEqual(otherInstall.nonce, challenge.nonce);
+  const results = await Promise.all([auth(a, id(4), challenge.nonce, id(14), now),
+    auth(a, id(4), challenge.nonce, id(15), now)]);
+  assert.deepEqual(results.map(x => x.status), ["ok", "ok"]);
+  assert.equal((await auth(a, id(4), challenge.nonce, id(14), now)).status, "invalid");
+  const expired = await auth(a, id(4), challenge.nonce, id(16), now + 300_001);
+  assert.equal(expired.status, "challenge");
+  assert.notEqual(expired.nonce, challenge.nonce);
+  assert.equal(await a.revoke(), true);
+  assert.equal((await auth(a, id(4), expired.nonce, id(17), now + 300_001)).status, "suspended");
+});
+
+test("nonce capacity is bounded and expired entries release capacity", async () => {
+  const state = await initialized();
+  const now = Date.now();
+  const random = () => Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+  const keys = Array.from({ length: 257 }, random);
+  let first;
+  for (const key of keys.slice(0, 256)) {
+    const response = await state.authenticateMail(id(250), random(), now + 60_000, key, null, random(), now);
+    assert.equal(response.status, "challenge");
+    first ??= response.nonce;
+  }
+  assert.equal((await state.authenticateMail(id(250), random(), now + 60_000, keys[256], null, random(), now)).status, "unavailable");
+  assert.equal((await state.authenticateMail(id(250), random(), now + 60_000, keys[0], first, random(), now)).status, "ok");
+  const future = now + 300_001;
+  assert.equal((await state.authenticateMail(id(250), random(), future + 60_000, keys[256], null, random(), future)).status, "challenge");
+});
+
+test("a replayed rotation cannot change a suspended identity", async () => {
+  const state = await initialized();
+  const now = Date.now();
+  assert.equal(await state.operatorSuspend(id(60), "key_compromised", "operator", now), "suspended");
+  const oldProof = { thumbprint: id(250), jti: id(61), expiresAt: now + 60_000 };
+  const newProof = { thumbprint: id(62), jti: id(63), expiresAt: now + 60_000 };
+  assert.equal(await state.rotate(oldProof, newProof, id(64), now), false);
+  assert.equal(await state.rotate(oldProof, newProof, id(64), now), false);
+  assert.equal(await state.isSuspendedForThumbprint(id(250)), true);
+  assert.equal(await state.isSuspendedForThumbprint(id(62)), false);
+  assert.equal(await state.register(id(62), id(65), now + 60_000, now), false);
+});
 async function start(state, provider, connection, expectedGeneration = 0) {
   const oauthState = id(nextState++ % 240);
   const flow = await state.createAuthFlow({ provider, purpose: "mail", state: oauthState, challenge, nonce: id(3),

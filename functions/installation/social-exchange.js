@@ -1,3 +1,4 @@
+import { suspendedInstallation } from "../_shared/mail-nonce.js";
 import { rejectInvalidProof } from "../_shared/invalid-proof.js";
 import { readBoundedBody, verifyInstallationProof } from "../_shared/installation-proof.js";
 import { isKeyringReady, openSocialFlowResult, sealSocialFlowResult } from "../_shared/token-state.js";
@@ -35,6 +36,7 @@ export async function onRequestPost({ request, env }) {
       body: JSON.stringify({ thumbprint: proof.thumbprint, jti: proof.jti, expiresAt: proof.expiresAt,
         flowId: body.flowId, verifier: body.verifier }),
     });
+    if (response.status === 423) return suspendedInstallation();
     if (response.status === 403) return rejectInvalidProof(env, ip, headers, 403);
     if (response.status === 202) return new Response(null, { status: 202, headers });
     if (response.status === 410) return new Response("Sign-in could not be completed. Start again.", { status: 410, headers });

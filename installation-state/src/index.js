@@ -13,18 +13,25 @@ export class InstallationState extends DurableObject {
     const path = new URL(request.url).pathname;
     let input;
     try { input = await request.json(); } catch { return new Response(null, { status: 400 }); }
+    if (path === "/operator-suspend") {
+      const status = await this.logic.operatorSuspend(input.operationId, input.reason, input.operatorId);
+      return Response.json({ status }, { status: status === "invalid" ? 400 : status === "not_found" ? 404 : 200 });
+    }
     if (path === "/register") {
-      const ok = await this.logic.register(input.thumbprint, input.jti, input.expiresAt);
-      if (!ok) return new Response(null, { status: 409 });
+      const status = await this.logic.registerStatus(input.thumbprint, input.jti, input.expiresAt);
+      if (status === "suspended") return new Response(null, { status: 423 });
+      if (status !== "ok") return new Response(null, { status: 409 });
       await this.scheduleCleanup();
       return new Response(null, { status: 204 });
     }
     if (path === "/rotate") {
       const ok = await this.logic.rotate(input.oldProof, input.newProof, input.operationId);
+      if (!ok && await this.logic.isSuspendedForThumbprint(input.oldProof?.thumbprint)) return new Response(null, { status: 423 });
       return new Response(null, { status: ok ? 204 : 409 });
     }
     if (path === "/create-flow") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
+      const auth = await this.logic.authorizeStatus(input.thumbprint, input.jti, input.expiresAt);
+      if (auth !== "ok") return new Response(null, { status: auth === "suspended" ? 423 : 403 });
       const flowId = await this.logic.createAuthFlow(input.flow);
       if (!flowId) return new Response(null, { status: 400 });
       await this.scheduleCleanup();
@@ -36,7 +43,8 @@ export class InstallationState extends DurableObject {
       return Response.json(candidate);
     }
     if (path === "/bind-browser") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
+      const auth = await this.logic.authorizeStatus(input.thumbprint, input.jti, input.expiresAt);
+      if (auth !== "ok") return new Response(null, { status: auth === "suspended" ? 423 : 403 });
       return new Response(null, { status: await this.logic.bindBrowser(input.flowId, input.nonce) ? 204 : 409 });
     }
     if (path === "/start-provider") {
@@ -50,7 +58,8 @@ export class InstallationState extends DurableObject {
       return new Response(null, { status: await this.logic.recordCallback(input.flowId, input.cookieHash, input.state, input.result) ? 204 : 409 });
     }
     if (path === "/claim-social-exchange") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
+      const auth = await this.logic.authorizeStatus(input.thumbprint, input.jti, input.expiresAt);
+      if (auth !== "ok") return new Response(null, { status: auth === "suspended" ? 423 : 403 });
       const cached = await this.logic.readSocialExchange(input.flowId, input.verifier);
       if (cached) return Response.json({ sealedResult: cached });
       const claim = await this.logic.beginExchange(input.flowId, input.verifier, null);
@@ -64,8 +73,8 @@ export class InstallationState extends DurableObject {
       return new Response(null, { status: await this.logic.finishSocialExchange(input.flowId, input.sealedResult) ? 204 : 409 });
     }
     if (path === "/claim-mail-exchange") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
-      if (!await this.logic.consumeDpopProof(input.dpopFingerprint)) return new Response(null, { status: 403 });
+      const denial = await this.authenticateMail(input);
+      if (denial) return denial;
       await this.scheduleCleanup();
       const cached = await this.logic.readMailExchange(input.flowId, input.verifier, input.dpopJkt);
       if (cached) return Response.json(cached);
@@ -88,21 +97,21 @@ export class InstallationState extends DurableObject {
       return result ? Response.json(result) : new Response(null, { status: 409 });
     }
     if (path === "/ack-mail-exchange") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
-      if (!await this.logic.consumeDpopProof(input.dpopFingerprint)) return new Response(null, { status: 403 });
+      const denial = await this.authenticateMail(input);
+      if (denial) return denial;
       await this.scheduleCleanup();
       return new Response(null, { status: await this.logic.acknowledgeMailExchange(input.flowId, input.verifier, input.dpopJkt) ? 204 : 409 });
     }
     if (path === "/mail-status") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
-      if (!await this.logic.consumeDpopProof(input.dpopFingerprint)) return new Response(null, { status: 403 });
+      const denial = await this.authenticateMail(input);
+      if (denial) return denial;
       await this.scheduleCleanup();
       const active = await this.logic.wasMailActivated(input.provider, input.connectionId, input.generation, input.flowId, input.dpopJkt);
       return Response.json({ active });
     }
     if (path === "/cancel-mail-flow" || path === "/disconnect-mail") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
-      if (!await this.logic.consumeDpopProof(input.dpopFingerprint)) return new Response(null, { status: 403 });
+      const denial = await this.authenticateMail(input);
+      if (denial) return denial;
       const ok = path === "/cancel-mail-flow"
         ? await this.logic.cancelMailFlow(input.flowId, input.dpopJkt)
         : await this.logic.disconnectMail(input.provider, input.connectionId, input.generation, input.flowId, input.dpopJkt);
@@ -110,8 +119,8 @@ export class InstallationState extends DurableObject {
       return new Response(null, { status: ok ? 204 : 409 });
     }
     if (path === "/claim-mail-refresh") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
-      if (!await this.logic.consumeDpopProof(input.dpopFingerprint)) return new Response(null, { status: 403 });
+      const denial = await this.authenticateMail(input);
+      if (denial) return denial;
       await this.scheduleCleanup();
       return Response.json(await this.logic.beginMailRefresh(input));
     }
@@ -126,8 +135,8 @@ export class InstallationState extends DurableObject {
       return sealedResult ? Response.json({ sealedResult }) : new Response(null, { status: 409 });
     }
     if (path === "/ack-mail-refresh") {
-      if (!await this.logic.authorize(input.thumbprint, input.jti, input.expiresAt)) return new Response(null, { status: 403 });
-      if (!await this.logic.consumeDpopProof(input.dpopFingerprint)) return new Response(null, { status: 403 });
+      const denial = await this.authenticateMail(input);
+      if (denial) return denial;
       await this.scheduleCleanup();
       return new Response(null, { status: await this.logic.acknowledgeMailRefresh(input) ? 204 : 409 });
     }
@@ -140,10 +149,22 @@ export class InstallationState extends DurableObject {
     return new Response(null, { status: 404 });
   }
 
+  async authenticateMail(input) {
+    const result = await this.logic.authenticateMail(input.thumbprint, input.jti, input.expiresAt,
+      input.dpopJkt, input.dpopNonce, input.dpopFingerprint);
+    if (result.status === "challenge") {
+      await this.scheduleCleanup();
+      return new Response(null, { status: 428, headers: { "dpop-nonce": result.nonce, "cache-control": "no-store" } });
+    }
+    if (result.status === "unavailable") return new Response(null, { status: 503 });
+    if (result.status === "suspended") return new Response(null, { status: 423 });
+    return result.status === "ok" ? null : new Response(null, { status: 403 });
+  }
+
   async alarm() {
     await this.logic.sweepExpired();
     const records = await this.ctx.storage.list();
-    if ([...records].some(([key]) => key.startsWith("proof:") || key.startsWith("dpop:") || key.startsWith("disconnect:") || key.startsWith("flow:") || key.startsWith("authflow:"))) {
+    if ([...records].some(([key]) => key.startsWith("proof:") || key.startsWith("dpop:") || key.startsWith("mail-nonce:") || key.startsWith("disconnect:") || key.startsWith("flow:") || key.startsWith("authflow:"))) {
       await this.scheduleCleanup();
     }
   }

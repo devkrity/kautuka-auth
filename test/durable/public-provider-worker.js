@@ -9,6 +9,8 @@ let releaseRefresh;
 let failRefresh = false;
 let partialRefresh = false;
 let exchanges = 0;
+let exchangeStarted = false;
+let releaseExchange;
 let gateAck = false;
 let gateFlowId;
 let gatePath = '/installation/mail-ack';
@@ -54,6 +56,13 @@ globalThis.fetch = async (url, init = {}) => {
     }
     if (form.get('grant_type') === 'authorization_code') {
       exchanges++;
+      if (form.get('code') === 'local-suspended-exchange') {
+        exchangeStarted = true;
+        await Promise.race([
+          new Promise(resolve => { releaseExchange = resolve; }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Local exchange gate timed out.')), 12000)),
+        ]);
+      }
       const scope = form.get('code') === 'local-insufficient' ? 'openid profile' : 'openid https://www.googleapis.com/auth/gmail.modify';
       return Response.json({ access_token: 'local-access', refresh_token: 'local-refresh', scope });
     }
@@ -93,6 +102,13 @@ export default {
     }
     if (path === '/__test_refresh_started')
       return Response.json({ refreshStarted });
+    if (path === '/__test_exchange_started') return Response.json({ exchangeStarted });
+    if (path === '/__test_exchange_release' && request.method === 'POST') {
+      if (!releaseExchange) return new Response(null, { status: 409 });
+      releaseExchange();
+      releaseExchange = undefined;
+      return new Response(null, { status: 204 });
+    }
     if (path === '/__test_refresh_rearm' && request.method === 'POST') {
       if (releaseRefresh) return new Response(null, { status: 409 });
       refreshStarted = false;

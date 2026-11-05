@@ -20,6 +20,20 @@ export function isCanonicalOrigin(value) {
   }
 }
 
+// Browser-facing Gateway origins may use HTTP only on the supported local network.
+export function isAllowedGatewayOrigin(value) {
+  if (typeof value !== "string" || value.length > 2048 || /[%\\\u0000-\u0020\u007f]/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    if (url.origin !== value || url.username || url.password || url.hostname.endsWith(".")
+      || /[^\x21-\x7e]/.test(url.hostname)
+      || url.hostname.split(".").some((label) => label.toLowerCase().startsWith("xn--"))) return false;
+    return url.protocol === "https:" || (url.protocol === "http:" && isPrivateHost(url.hostname));
+  } catch {
+    return false;
+  }
+}
+
 export function isAllowedReturn(value, connector) {
   const path = returnPathFor(connector);
   if (!path || typeof value !== "string" || value.length > 3000) return false;
